@@ -5,6 +5,7 @@ from dotenv import load_dotenv
 load_dotenv()  # Load environment variables from .env
 
 from database import supabase
+from webhook import verify_webhook, receive_webhook
 
 app = FastAPI(title="WaveMatch API", version="0.1.0")
 
@@ -27,3 +28,12 @@ async def test_db():
         return {"status": "success", "data": result.data}
     except Exception as e:
         return {"status": "error", "message": str(e)}
+
+# Webhook endpoints for WhatsApp Cloud API
+@app.get("/webhook")
+async def webhook_verification(request: Request):
+    return await verify_webhook(request)
+
+@app.post("/webhook")
+async def webhook_receiver(request: Request):
+    return await receive_webhook(request)
