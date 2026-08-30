@@ -114,7 +114,9 @@ phone_number (PK) | current_flow | current_step | collected_data (JSONB) | updat
 **The rule every handler must follow, with no exceptions:**
 1. **On every incoming webhook event** (button tap or free text), look up `conversation_states` by phone number **before** deciding how to handle the message.
    - **Row exists** → the phone number is mid-flow. Route the message to the handler for `(current_flow, current_step)`, not to a generic top-level menu handler.
-   - **No row** → treat the message as a fresh top-level action (main menu, a button on an already-sent notification, etc).
+   - **No row** → the phone number has no active flow. Check whether it already exists in `users` or `posters`:
+     - **Not found in either** → this is a first contact. Send the welcome message (Poster vs. User buttons, Full-Product-Logic.md Section 1.1). No `conversation_states` row is created yet — there's nothing to track until they pick a role.
+     - **Found in `users` or `posters`** → treat the message as a fresh top-level action for that role (main menu for a user, post/menu options for a poster; or a reply to a button on an already-sent notification, e.g. Apply Now on a match).
 2. **Whenever a step handler finishes processing input**, it must do *both* of these, never just one:
    - Persist whatever was just collected into `collected_data` (a JSON merge, not an overwrite of the whole blob).
    - Write the **next** `current_step` and send that next step's prompt — or, if the flow is complete, **delete the row** and create the real `posters`/`users`/`opportunities` row.
