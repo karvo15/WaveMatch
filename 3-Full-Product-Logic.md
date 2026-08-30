@@ -16,7 +16,7 @@ This document describes the complete, exact behavior of the bot. It supersedes a
 | Poster: display name | 1.2 | Free text | open-ended |
 | User: interest selection | 1.3 | Free text | 12 options exceeds 10-row list cap; no native multi-select |
 | User: edit interests | 1.3.4 | Free text | same as above |
-| Main Menu | 2 | List or persistent buttons | 2 top-level items, small enough for either — pick one and use it consistently |
+| Main Menu | 2 | Buttons (2) | Available Applications / My Applications — resolved to persistent buttons (not a list) for a single-tap experience |
 | My Applications sub-menu | 2 | Buttons (3) | Under Review / Ongoing / Scheduled — exactly 3 |
 | Poster: opportunity type | 3 | Free text | open category label |
 | Poster: title, description | 3 | Free text | open-ended |
@@ -41,9 +41,9 @@ If a step is ever added that isn't in this table, add it here **before** buildin
 ## 1. Registration
 
 ### 1.1 New contact, first message
-When any new phone number messages the bot for the first time, the bot asks whether they want to register as a **Poster** or as a **User**. This is a one-time fork — a phone number is either a poster or a user, not both, for the MVP.
+When any new phone number messages the bot for the first time, the bot checks `conversation_states` and finds no row — this absence, combined with no existing `users`/`posters` row for that phone number, is what identifies it as a first contact. The bot sends the welcome message asking whether they want to register as a **Poster** or as a **User** (two buttons — see Message-Flow-Examples.md Section 1 for exact wording). This is a one-time fork — a phone number is either a poster or a user, not both, for the MVP.
 
-**State tracking:** the moment this question is sent, write a `conversation_states` row: `current_flow = 'register_poster'` or `'register_user'` (set once the button is tapped, not before), `current_step = 'awaiting_role_choice'` initially. See Architecture-Doc.md Section 3F — every step below writes/reads this row; that requirement isn't repeated in every numbered step, but it applies to all of them without exception.
+**State tracking:** no `conversation_states` row is created yet at this point — the welcome message itself requires no state, since there's nothing to track until the user actually picks a role. The row is created **only once the user taps a button**, at the start of Section 1.2 or 1.3 below. See Architecture-Doc.md Section 3F — every step below writes/reads this row; that requirement isn't repeated in every numbered step, but it applies to all of them without exception.
 
 ### 1.2 Poster registration
 1. User taps **Poster**. Set `current_flow = 'register_poster'`, `current_step = 'awaiting_display_name'`. The poster is asked to provide a **display name** (their own name or their organization's name). This name is shown on every opportunity they post, so users know who's posting.
