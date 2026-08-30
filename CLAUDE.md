@@ -8,6 +8,9 @@ A WhatsApp bot (Python/FastAPI backend, Supabase/Postgres, Meta WhatsApp Cloud A
 ## Stack (do not deviate without flagging it first)
 Python 3.11+, FastAPI, Uvicorn, `supabase-py`, `httpx` (async), Pydantic, APScheduler, `rapidfuzz`. Hosted on Render. Database is Supabase/Postgres, schema in `5-Data-Schema.sql`.
 
+## Meta/WhatsApp setup status
+Already complete — registered phone number, System User access token, message templates, app/WABA publication, privacy policy. Do not suggest or ask about any of this as a setup task. The one thing that remains a live, moment-to-moment concern (not a setup task) is the 24-hour messaging window (`6-Platform-Constraints.md` Section 1): a free-form message test will fail if the test number hasn't messaged the bot's business number recently enough for the session to be open. If a live test of a message-sending function fails, check whether the error is specifically the "outside 24-hour window" error before treating it as a code bug.
+
 ## The docs — read these, don't reconstruct from memory
 1. `0-Problem-Statement-and-Solution.md` — why
 2. `1-Product-Plan.md` — what, product-level
@@ -33,7 +36,19 @@ Python 3.11+, FastAPI, Uvicorn, `supabase-py`, `httpx` (async), Pydantic, APSche
 - Don't introduce a new library, pattern, or architectural choice not already named in `2-Architecture-Doc.md` without flagging it first.
 - If anything in the docs is ambiguous or contradictory, say so explicitly rather than guessing — this has caught real bugs in this project already (see the conversation_states timing fix in `3-Full-Product-Logic.md` Section 1.1).
 
-## Context management (this project runs on `max` reasoning effort)
+## Phase workflow (applies to every phase, automatically — don't wait to be told this each time)
+Follow this exact sequence for every phase in `7-Build-Checklist.md`, no exceptions:
+1. **Confirm the prior phase's status** before starting a new one.
+2. **Write and show your implementation plan first** — files to be created/changed, function signatures, how each piece will be tested — and **wait for explicit approval before writing any code.** Do not start coding on your own initiative just because a phase was mentioned.
+3. **Re-read the specific doc sections relevant to this phase fresh from disk** before planning — don't rely on a summary from earlier in the session, especially after a `/compact`.
+4. Build the smallest testable slice, working through the phase's tasks in order.
+5. **Before reporting a phase done, be explicit about how each claim was verified**, not just that it was: state plainly whether something was actually tested live (e.g. a real message sent to a real number, a real deployed endpoint hit) versus only written/reviewed without a live test. Show actual output (real responses, real file contents, real line numbers from the file you just read) rather than a description of expected output. If reporting on code you wrote, quote the actual current file content for anything you make a specific claim about (e.g. "the enum is defined at line X") rather than reconstructing it from memory of writing it earlier in the session.
+6. **State explicitly whether any existing file was touched**, and list exactly which new files were created and where.
+7. **Stop and wait** — don't move to the next phase without being told to, even if the current one looks complete to you.
+
+This sequence exists because of two real incidents in this project: a multi-step flow that silently dead-ended because a handler reported "done" without actually advancing state (see Rule B), and a phase report that confidently gave specific line numbers for code that turned out not to match the real file. Both were caught by asking "how do you know, and can you show me the real thing" — apply that standard to your own reporting before it's asked of you.
+
+
 `max` burns through context faster than lower effort levels, so compaction happens more often here than usual. Practical implications:
 - At the end of every completed, tested phase, prefer running `/compact` proactively rather than waiting for it to trigger automatically — compacting at a clean phase boundary preserves a much better summary than compacting mid-debug.
 - This file is your anchor after any compaction or `/clear` — if something feels uncertain about project rules after a context reset, re-read this file and the relevant doc section before proceeding, rather than reconstructing the rule from a compacted summary.
