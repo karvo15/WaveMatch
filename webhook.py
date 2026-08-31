@@ -8,9 +8,10 @@ import hmac
 import hashlib
 import json
 import logging
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 from fastapi import Request, HTTPException
 from dotenv import load_dotenv
+from conversation import get_conversation_state, set_conversation_state, clear_conversation_state, user_exists, poster_exists
 
 # Load environment variables
 load_dotenv()
@@ -109,10 +110,73 @@ async def receive_webhook(request: Request) -> Dict[str, str]:
         logger.error(f"JSON_DECODE_ERROR: {e}")
         raise HTTPException(status_code=400, detail="Invalid JSON payload")
 
-    # STEP 4: LOG THE PAYLOAD FOR DEBUGGING/VERIFICATION
+    # STEP 4: EXTRACT PHONE NUMBER AND CHECK FOR ESCAPE HATCH
+    def extract_phone_number_from_payload(payload: Dict[str, Any]) -> Optional[str]:
+        try:
+            return payload["entry"][0]["changes"][0]["value"]["contacts"][0]["wa_id"]
+        except (KeyError, IndexError, TypeError):
+            return None
+
+    # STEP 5: CHECK FOR ESCAPE HATCH (cancel/menu) - PROPERLY GUARDED
+    phone_number = extract_phone_number_from_payload(payload)
+    if phone_number:
+        # Safely extract message text with fallback for non-message events (status, etc.)
+        message_text = ""
+        try:
+            # Check if this is a message event (has messages array)
+            if ("entry" in payload and len(payload["entry"]) > 0 and
+                "changes" in payload["entry"][0] and len(payload["entry"][0]["changes"]) > 0 and
+                "value" in payload["entry"][0]["changes"][0] and
+                "messages" in payload["entry"][0]["changes"][0]["value"] and
+                len(payload["entry"][0]["changes"][0]["value"]["messages"]) > 0):
+
+                message_obj = payload["entry"][0]["changes"][0]["value"]["messages"][0]
+                if ("text" in message_obj and
+                    "body" in message_obj["text"]):
+                    message_text = message_obj["text"]["body"].strip().lower()
+        except (KeyError, IndexError, TypeError):
+            # If any part of the structure is missing, treat as non-message event
+            message_text = ""
+
+        # Only check for escape hatch if we actually have message text
+        if message_text in ["cancel", "menu"]:
+            # Escape hatch triggered - clear state and treat as no active flow
+            await clear_conversation_state(phone_number)
+            # Continue to dispatcher below (will route to main menu/returning user logic)
+
+    # STEP 6: MAIN DISPATCH RULE - MUST BE FIRST THING AFTER SIGNATURE VERIFICATION
+    conversation_state = await get_conversation_state(phone_number) if phone_number else None
+
+    if conversation_state:
+        # ROW EXISTS -> MID-FLOW
+        # Route to handler for (conversation_state['current_flow'], conversation_state['current_step'])
+        # Implementation will be completed in Phase F
+        flow = conversation_state["current_flow"]
+        step = conversation_state["current_step"]
+        # TODO: In Phase F, add logic like:
+        # if flow == "register_user" and step == "awaiting_interests":
+        #     await handle_user_interests_step(phone_number, payload, conversation_state)
+        # For now, we just log that we found a conversation state
+        logger.info(f"MID-FLOW DETECTED: phone_number={phone_number}, flow={flow}, step={step}")
+    else:
+        # NO ROW -> CHECK IF RETURNING USER OR FIRST CONTACT
+        # Use async helpers to check existence without blocking event loop
+        user_exists_result = await user_exists(phone_number) if phone_number else False
+        poster_exists_result = await poster_exists(phone_number) if phone_number else False
+
+        if not user_exists_result and not poster_exists_result:
+            # FIRST CONTACT -> Welcome message (Poster vs User buttons)
+            # TODO: In Phase F, add logic to send welcome message with Poster/User buttons
+            logger.info(f"FIRST CONTACT DETECTED: phone_number={phone_number}")
+        else:
+            # RETURNING USER/POSTER WITH NO ACTIVE FLOW -> Main menu or relevant top-level handler
+            # TODO: In Phase F, add logic to show appropriate main menu based on user/poster type
+            logger.info(f"RETURNING USER/POSTER DETECTED: phone_number={phone_number}")
+
+    # STEP 7: LOG THE PAYLOAD FOR DEBUGGING/VERIFICATION
     logger.info(f"WEBHOOK_PAYLOAD_RECEIVED: {json.dumps(payload, indent=2)}")
 
-    # STEP 5: RETURN ACKNOWLEDGMENT TO META
+    # STEP 8: RETURN ACKNOWLEDGMENT TO META
     # Meta expects a 200 OK response to know we received the webhook
     return {"status": "ok"}
 
