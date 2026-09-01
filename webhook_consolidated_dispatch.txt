@@ -1,139 +1,3 @@
-"""
-Webhook handling for WhatsApp Cloud API.
-Implements verification and message receiving with proper signature verification.
-"""
-
-import os
-import hmac
-import hashlib
-import json
-import logging
-from typing import Dict, Any, Optional
-from fastapi import Request, HTTPException
-from dotenv import load_dotenv
-from conversation import get_conversation_state, set_conversation_state, clear_conversation_state, user_exists, poster_exists
-import registration  # Import the registration module
-from database import supabase
-import anyio
-
-# Load environment variables
-load_dotenv()
-
-# WhatsApp Configuration from environment variables
-WHATSAPP_APP_SECRET = os.getenv("WHATSAPP_APP_SECRET")
-WHATSAPP_VERIFY_TOKEN = os.getenv("WHATSAPP_VERIFY_TOKEN")
-WHATSAPP_APP_ID = os.getenv("WHATSAPP_APP_ID")  # For WABA subscription check
-
-# Validate required environment variables
-if not WHATSAPP_APP_SECRET:
-    raise ValueError("WHATSAPP_APP_SECRET environment variable is required")
-if not WHATSAPP_VERIFY_TOKEN:
-    raise ValueError("WHATSAPP_VERIFY_TOKEN environment variable is required")
-
-# Setup logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
-
-
-async def verify_webhook(request: Request) -> str:
-    """
-    Handle Meta's webhook verification challenge (GET request).
-
-    Args:
-        request: FastAPI Request object
-
-    Returns:
-        The hub.challenge value as string if verification succeeds
-
-    Raises:
-        HTTPException: 403 if verification fails
-    """
-    # Extract query parameters
-    query_params = request.query_params
-    mode = query_params.get("hub.mode")
-    token = query_params.get("hub.verify_token")
-    challenge = query_params.get("hub.challenge")
-
-    # Verify the request
-    if mode and token and mode == "subscribe" and token == WHATSAPP_VERIFY_TOKEN:
-        logger.info("WEBHOOK_VERIFIED")
-        return challenge
-    else:
-        logger.warning(f"WEBHOOK_VERIFICATION_FAILED. mode:{mode}, token:{token}")
-        raise HTTPException(status_code=403, detail="Verification failed")
-
-
-async def handle_admin_command(phone_number: str, payload: Dict[str, Any]) -> None:
-    """
-    Handle admin commands from admin's personal number.
-    Only processes if phone_number matches admin's personal number.
-    """
-    # Extract message text from payload
-    message_text = ""
-    try:
-        if ("entry" in payload and len(payload["entry"]) > 0 and
-            "changes" in payload["entry"][0] and len(payload["entry"][0]["changes"]) > 0 and
-            "value" in payload["entry"][0]["changes"][0] and
-            "messages" in payload["entry"][0]["changes"][0]["value"] and
-            len(payload["entry"][0]["changes"][0]["value"]["messages"]) > 0):
-
-            message_obj = payload["entry"][0]["changes"][0]["value"]["messages"][0]
-            if ("text" in message_obj and
-                "body" in message_obj["text"]):
-                message_text = message_obj["text"]["body"].strip()
-    except (KeyError, IndexError, TypeError):
-        # If any part of the structure is missing, treat as non-message event
-        message_text = ""
-
-    # Parse command using UUID-aware regex: r'^(approve|reject)\s+([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$'
-    import re
-    pattern = r'^(approve|reject)\s+([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$'
-    match = re.match(pattern, message_text, re.IGNORECASE)
-
-    if not match:
-        # Not a valid admin command, ignore
-        return
-
-    action = match.group(1).lower()  # approve or reject
-    poster_id = match.group(2)  # UUID string
-
-    # Validate action
-    if action not in ["approve", "reject"]:
-        return
-
-    # Update posters table: SET status = 'approved' if action == 'approve' ELSE 'rejected' WHERE id = poster_id
-    new_status = "approved" if action == "approve" else "rejected"
-
-    def _update_poster_status():
-        result = supabase.from_("posters").update({"status": new_status}).eq("id", poster_id).execute()
-        return result
-
-    update_result = await anyio.to_thread.run_sync(_update_poster_status)
-
-    # Get poster info for notification (including phone_number)
-    def _get_poster_info():
-        result = supabase.from_("posters").select("display_name", "phone_number").eq("id", poster_id).execute()
-        return result.data[0] if result.data else None
-
-    poster_info = await anyio.to_thread.run_sync(_get_poster_info)
-
-    if poster_info:
-        display_name = poster_info["display_name"]
-        poster_phone_number = poster_info["phone_number"]
-        # Notify poster of outcome via WhatsApp (send to poster's phone number, not admin's)
-        from whatsapp import send_whatsapp_message
-        if action == "approve":
-            outcome_message = f"✅ You're approved! Tap below anytime to post a new opportunity."
-        else:
-            outcome_message = f"❌ Your registration was rejected. Please contact support if you believe this is in error."
-
-        await send_whatsapp_message(poster_phone_number, body=outcome_message)
-
-        # Also send a confirmation to admin (optional)
-        admin_confirmation = f"Poster '{display_name}' has been {action}ed."
-        await send_whatsapp_message(phone_number, body=admin_confirmation)
-
-
 async def receive_webhook(request: Request) -> Dict[str, str]:
     """
     Handle incoming webhook payloads (POST request) with signature verification.
@@ -204,12 +68,10 @@ async def receive_webhook(request: Request) -> Dict[str, str]:
     if ("entry" in payload and len(payload["entry"]) > 0 and
         "changes" in payload["entry"][0] and len(payload["entry"][0]["changes"]) > 0 and
         "value" in payload["entry"][0]["changes"][0] and
-        "messages" in payload["entry"][0]["changes"][0]["value"] and
-        len(payload["entry"][0]["changes"][0]["value"]["messages"]) > 0 and
-        "interactive" in payload["entry"][0]["changes"][0]["value"]["messages"][0] and
-        "button_reply" in payload["entry"][0]["changes"][0]["value"]["messages"][0]["interactive"]):
+        "interactive" in payload["entry"][0]["changes"][0]["value"] and
+        "button_reply" in payload["entry"][0]["changes"][0]["value"]["interactive"]):
 
-        button_title = payload["entry"][0]["changes"][0]["value"]["messages"][0]["interactive"]["button_reply"]["title"]
+        button_title = payload["entry"][0]["changes"][0]["value"]["interactive"]["button_reply"]["title"]
         if button_title == "📢 Post Opportunities":
             await registration.handle_role_selection(phone_number, payload, "register_poster")
             return {"status": "ok"}
@@ -221,7 +83,7 @@ async def receive_webhook(request: Request) -> Dict[str, str]:
     # STEP 7: ADMIN NUMBER CHECK - handle admin commands before regular flows
     ADMIN_PHONE_NUMBER = os.getenv("ADMIN_PHONE_NUMBER")
     if phone_number == ADMIN_PHONE_NUMBER:
-        await handle_admin_command(phone_number, payload)
+        await registration.handle_admin_command(phone_number, payload)
         return {"status": "ok"}  # Admin commands handled, no further processing needed
 
     # STEP 8: ESCAPE HATCH CHECK - check for "cancel"/"menu" in message text (guarded for non-message events)
@@ -280,7 +142,7 @@ async def receive_webhook(request: Request) -> Dict[str, str]:
             await registration.handle_first_contact(phone_number)
         else:
             # RETURNING USER/POSTER WITH NO ACTIVE FLOW -> Main menu or relevant top-level handler
-            await registration.send_main_menu(phone_number, is_returning_user=user_exists_result, is_returning_poster=poster_exists_result)
+            await registration.handle_main_menu(phone_number, is_returning_user=user_exists_result, is_returning_poster=poster_exists_result)
 
     # STEP 10: LOG THE PAYLOAD FOR DEBUGGING/VERIFICATION
     logger.info(f"WEBHOOK_PAYLOAD_RECEIVED: {json.dumps(payload, indent=2)}")
@@ -288,26 +150,3 @@ async def receive_webhook(request: Request) -> Dict[str, str]:
     # STEP 11: RETURN ACKNOWLEDGMENT TO META
     # Meta expects a 200 OK response to know we received the webhook
     return {"status": "ok"}
-
-
-# Section 10.5: WABA-level Webhook Subscription Helper
-def check_waba_subscription() -> bool:
-    """
-    Check if our WABA is subscribed to our app via Graph API.
-    This should be called during startup or as a one-time verification step.
-
-    Returns:
-        True if subscribed, False otherwise
-
-    Note: This requires making authenticated calls to the Graph API.
-    For simplicity in this implementation, we assume this has been done
-    as part of the already-complete app/WABA publication step per CLAUDE.md.
-    In a production implementation, this would verify/subscribe via:
-    - GET /{WABA_ID}/subscribed_apps to check current subscriptions
-    - POST /{WABA_ID}/subscribed_apps if not subscribed
-    """
-    # Per CLAUDE.md: "Already complete — registered phone number, System User access token,
-    # message templates, app/WABA publication, privacy policy."
-    # We'll log a reminder but assume it's done for this phase.
-    logger.info("REMINDER: Verify WABA-level subscription via POST /{WABA_ID}/subscribed_apps if needed")
-    return True  # Assume already handled per CLAUDE.md documentation

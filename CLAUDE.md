@@ -52,3 +52,31 @@ This sequence exists because of two real incidents in this project: a multi-step
 `max` burns through context faster than lower effort levels, so compaction happens more often here than usual. Practical implications:
 - At the end of every completed, tested phase, prefer running `/compact` proactively rather than waiting for it to trigger automatically — compacting at a clean phase boundary preserves a much better summary than compacting mid-debug.
 - This file is your anchor after any compaction or `/clear` — if something feels uncertain about project rules after a context reset, re-read this file and the relevant doc section before proceeding, rather than reconstructing the rule from a compacted summary.
+
+## Pre-Plan Self-Check (run this against your own plan before presenting it)
+
+Before showing any implementation plan, re-read it once end-to-end and confirm:
+1. Everywhere you write "RESOLVED" or "FIXED," the code shown immediately below 
+   implements that exact resolution — not the previous approach under a new label.
+2. Every async def function that calls a blocking client (Supabase, sync httpx, etc.) 
+   shows the actual wrapping mechanism in code. Check this for every I/O call you're 
+   adding in this plan, not just the first one — a fix applied in one function doesn't 
+   carry over to a new function automatically.
+3. Any existing file you propose modifying has a stated, concrete behavior attached 
+   to the change — "may modify if needed" or "for verification" without specifics 
+   means drop the change.
+4. Any test step meant to prove persistence, atomicity, or a timing property directly 
+   checks that property (e.g., a direct DB read) rather than inferring it from 
+   surrounding app behavior.
+5. Anywhere two triggers could write to the same row concurrently (webhook + scheduler, 
+   two rapid webhooks), state explicitly whether this is handled atomically or accepted 
+   as a tradeoff — don't leave it implicit.
+
+This same check applies to actual committed code, not just the plan — after writing 
+code, re-open the real files and verify the code still matches what was approved, 
+since drift between plan and implementation is a distinct failure mode from drift 
+within the plan itself.
+
+Apply this with extra weight on phases flagged for x-high/max reasoning (see project 
+instructions Section 6) — these are the phases where a plausible-looking gap is most 
+likely and most costly.
