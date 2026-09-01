@@ -87,7 +87,7 @@ async def verify_3step_flow():
     print(f"\n6. After clearing conversation state:")
     await clear_conversation_state(test_phone)
     final_state = await get_conversation_state(test_phone)
-    print(f"   {final_state}")
+   print(f"   {final_state}")
 
     print("\n" + "=" * 50)
     print("3-Step Flow Verification Complete")
