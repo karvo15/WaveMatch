@@ -9,6 +9,7 @@ import hashlib
 import json
 import logging
 from typing import Dict, Any, Optional
+from datetime import datetime  # Fixed: import datetime class directly
 from fastapi import Request, HTTPException
 from dotenv import load_dotenv
 from conversation import get_conversation_state, set_conversation_state, clear_conversation_state, user_exists, poster_exists
@@ -33,6 +34,11 @@ if not WHATSAPP_VERIFY_TOKEN:
 # Setup logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+# MODULE-LEVEL DEDUPLICATION TRACKING (MVP TRADEOFF)
+# Simple in-memory set with timestamp expiry - resets on process restart/redeploy
+# Acceptable for MVP as webhook retries happen within minutes; production would use Redis/cache
+_recently_seen_message_ids = {}  # msg_id -> timestamp (epoch seconds)
 
 
 async def verify_webhook(request: Request) -> str:
@@ -144,6 +150,8 @@ async def receive_webhook(request: Request) -> Dict[str, str]:
     Args:
         request: FastAPI Request object
 
+    Request object
+
     Returns:
         Acknowledgment dict for Meta
 
@@ -184,6 +192,34 @@ async def receive_webhook(request: Request) -> Dict[str, str]:
     except json.JSONDecodeError as e:
         logger.error(f"JSON_DECODE_ERROR: {e}")
         raise HTTPException(status_code=400, detail="Invalid JSON payload")
+
+    # STEP 3.5: MESSAGE-ID DEDUPLICATION (PREVENTS RETRY STORMS)
+    def is_duplicate_message(payload: Dict[str, Any]) -> bool:
+        """Check if we've seen this message ID recently (deduplication)."""
+        try:
+            msg_id = payload["entry"][0]["changes"][0]["value"]["messages"][0]["id"]
+            # Simple in-memory tracking - in production would use Redis/cache
+
+            now = datetime.now().timestamp()
+            # Clean old entries (>5 minutes old)
+            global _recently_seen_message_ids
+            _recently_seen_message_ids = {
+                k: v for k, v in _recently_seen_message_ids.items()
+                if now - v < 300  # 5 minutes
+            }
+
+            if msg_id in _recently_seen_message_ids:
+                return True
+            _recently_seen_message_ids[msg_id] = now
+            return False
+        except (KeyError, IndexError, TypeError):
+            # If we can't extract message ID, don't deduplicate (fail open)
+            return False
+
+    # Skip if duplicate message (Meta webhook retry)
+    if is_duplicate_message(payload):
+        logger.info(f"WEBHOOK_DEDUPLICATED: skipping duplicate message ID")
+        return {"status": "ok"}  # Early return, acknowledge receipt to Meta
 
     # STEP 4: EXTRACT PHONE NUMBER FROM PAYLOAD (with defensive error handling)
     def extract_phone_number_from_payload(payload: Dict[str, Any]) -> Optional[str]:

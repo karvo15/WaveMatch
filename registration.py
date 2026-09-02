@@ -4,6 +4,7 @@ Handles first contact, role selection, poster registration, user registration, a
 """
 
 import os
+import logging
 from typing import Dict, Any, List
 from dotenv import load_dotenv
 from whatsapp import send_whatsapp_buttons, send_whatsapp_message
@@ -14,6 +15,10 @@ from rapidfuzz import fuzz, process
 
 # Load environment variables
 load_dotenv()
+
+# Setup logging
+logging.basicConfig(level=logging.DEBUG)
+logger = logging.getLogger(__name__)
 
 # Fixed category list for user interests (from Section 10.2 and 4-Message-Flow-Examples.md)
 FIXED_CATEGORIES = [
@@ -101,8 +106,27 @@ async def handle_poster_display_name_step(phone_number: str, payload: Dict[str, 
     """
     Processes display name input, creates pending poster record, clears state, sends admin notification.
     """
-    # Extract display name from message body
-    display_name = payload["entry"][0]["changes"][0]["value"]["messages"][0]["text"]["body"].strip()
+    # Extract display name from message body with defensive guarding
+    display_name = ""
+    try:
+        if ("entry" in payload and len(payload["entry"]) > 0 and
+            "changes" in payload["entry"][0] and len(payload["entry"][0]["changes"]) > 0 and
+            "value" in payload["entry"][0]["changes"][0] and
+            "messages" in payload["entry"][0]["changes"][0]["value"] and
+            len(payload["entry"][0]["changes"][0]["value"]["messages"]) > 0):
+
+            message_obj = payload["entry"][0]["changes"][0]["value"]["messages"][0]
+            if ("text" in message_obj and
+                "body" in message_obj["text"]):
+                display_name = message_obj["text"]["body"].strip()
+    except (KeyError, IndexError, TypeError):
+        # If any part of the structure is missing, treat as non-message event
+        display_name = ""
+
+    # Early return for non-message events (status callbacks, etc.)
+    if not display_name:
+        logger.debug(f"WEBHOOK_NON_MESSAGE_EVENT: skipping processing for phone_number={phone_number}")
+        return
 
     # Save display name to collected_data
     await set_conversation_state(
@@ -144,8 +168,27 @@ async def handle_user_interests_step(phone_number: str, payload: Dict[str, Any],
     """
     Parses interests via layered matching, creates user + user_tags, clears state, shows Main Menu.
     """
-    # Extract raw interests text from message body
-    raw_text = payload["entry"][0]["changes"][0]["value"]["messages"][0]["text"]["body"].strip()
+    # Extract raw interests text from message body with defensive guarding
+    raw_text = ""
+    try:
+        if ("entry" in payload and len(payload["entry"]) > 0 and
+            "changes" in payload["entry"][0] and len(payload["entry"][0]["changes"]) > 0 and
+            "value" in payload["entry"][0]["changes"][0] and
+            "messages" in payload["entry"][0]["changes"][0]["value"] and
+            len(payload["entry"][0]["changes"][0]["value"]["messages"]) > 0):
+
+            message_obj = payload["entry"][0]["changes"][0]["value"]["messages"][0]
+            if ("text" in message_obj and
+                "body" in message_obj["text"]):
+                raw_text = message_obj["text"]["body"].strip()
+    except (KeyError, IndexError, TypeError):
+        # If any part of the structure is missing, treat as non-message event
+        raw_text = ""
+
+    # Early return for non-message events (status callbacks, etc.)
+    if not raw_text:
+        logger.debug(f"WEBHOOK_NON_MESSAGE_EVENT: skipping processing for phone_number={phone_number}")
+        return
 
     # Parse interests using layered matching
     parsed_interests = parse_interests(raw_text)
@@ -204,8 +247,27 @@ async def handle_interests_edit_step(phone_number: str, payload: Dict[str, Any],
     """
     Same as handle_user_interests_step but updates existing user's interests instead of creating new user.
     """
-    # Extract raw interests text from message body
-    raw_text = payload["entry"][0]["changes"][0]["value"]["messages"][0]["text"]["body"].strip()
+    # Extract raw interests text from message body with defensive guarding
+    raw_text = ""
+    try:
+        if ("entry" in payload and len(payload["entry"]) > 0 and
+            "changes" in payload["entry"][0] and len(payload["entry"][0]["changes"]) > 0 and
+            "value" in payload["entry"][0]["changes"][0] and
+            "messages" in payload["entry"][0]["changes"][0]["value"] and
+            len(payload["entry"][0]["changes"][0]["value"]["messages"]) > 0):
+
+            message_obj = payload["entry"][0]["changes"][0]["value"]["messages"][0]
+            if ("text" in message_obj and
+                "body" in message_obj["text"]):
+                raw_text = message_obj["text"]["body"].strip()
+    except (KeyError, IndexError, TypeError):
+        # If any part of the structure is missing, treat as non-message event
+        raw_text = ""
+
+    # Early return for non-message events (status callbacks, etc.)
+    if not raw_text:
+        logger.debug(f"WEBHOOK_NON_MESSAGE_EVENT: skipping processing for phone_number={phone_number}")
+        return
 
     # Parse interests using layered matching
     parsed_interests = parse_interests(raw_text)
