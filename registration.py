@@ -61,7 +61,10 @@ async def handle_first_contact(phone_number: str) -> None:
     await send_whatsapp_buttons(
         phone_number,
         body="👋 Welcome to WaveMatch! Are you here to:",
-        buttons=[{"text": "🎓 Find Opportunities"}, {"text": "📢 Post Opportunities"}]
+        buttons=[
+            {"type": "reply", "reply": {"id": "find_opportunities", "title": "🎓 Find Opportunities"}},
+            {"type": "reply", "reply": {"id": "post_opportunities", "title": "📢 Post Opportunities"}}
+        ]
     )
 
 
