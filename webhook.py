@@ -209,11 +209,11 @@ async def receive_webhook(request: Request) -> Dict[str, str]:
         "interactive" in payload["entry"][0]["changes"][0]["value"]["messages"][0] and
         "button_reply" in payload["entry"][0]["changes"][0]["value"]["messages"][0]["interactive"]):
 
-        button_title = payload["entry"][0]["changes"][0]["value"]["messages"][0]["interactive"]["button_reply"]["title"]
-        if button_title == "📢 Post Opportunities":
+        button_id = payload["entry"][0]["changes"][0]["value"]["messages"][0]["interactive"]["button_reply"]["id"]
+        if button_id == "post_opportunities":
             await registration.handle_role_selection(phone_number, payload, "register_poster")
             return {"status": "ok"}
-        elif button_title == "🎓 Find Opportunities":
+        elif button_id == "find_opportunities":
             await registration.handle_role_selection(phone_number, payload, "register_user")
             return {"status": "ok"}
         # If it's some other button we don't recognize, fall through to normal processing
