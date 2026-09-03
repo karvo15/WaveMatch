@@ -8,7 +8,7 @@ import logging
 from typing import Dict, Any, List
 from dotenv import load_dotenv
 from whatsapp import send_whatsapp_buttons, send_whatsapp_message
-from conversation import get_conversation_state, set_conversation_state, clear_conversation_state
+from conversation import get_conversation_state, set_conversation_state, clear_conversation_state, _db_semaphore
 from database import supabase
 import anyio
 from rapidfuzz import fuzz, process
@@ -145,7 +145,8 @@ async def handle_poster_display_name_step(phone_number: str, payload: Dict[str, 
         }).execute()
         return result
 
-    poster_result = await anyio.to_thread.run_sync(_create_poster)
+    async with _db_semaphore:
+        poster_result = await anyio.to_thread.run_sync(_create_poster)
     poster_id = poster_result.data[0]["id"] if poster_result.data else None
 
     # Clear conversation state (flow complete)
@@ -201,7 +202,8 @@ async def handle_user_interests_step(phone_number: str, payload: Dict[str, Any],
         }).execute()
         return result
 
-    user_result = await anyio.to_thread.run_sync(_create_user)
+    async with _db_semaphore:
+        user_result = await anyio.to_thread.run_sync(_create_user)
     user_id = user_result.data[0]["id"] if user_result.data else None
 
     if user_id:
@@ -228,13 +230,18 @@ async def handle_user_interests_step(phone_number: str, payload: Dict[str, Any],
                 # If not found and not custom, return None (shouldn't happen with our parsing)
                 return None
 
-            tag_id = await anyio.to_thread.run_sync(_get_or_create_tag)
+            async with _db_semaphore:
+                tag_id = await anyio.to_thread.run_sync(_get_or_create_tag)
             if tag_id:
                 # Create user_tag junction
-                supabase.from_("user_tags").insert({
-                    "user_id": user_id,
-                    "tag_id": tag_id
-                }).execute()
+                def _create_user_tag():
+                    return supabase.from_("user_tags").insert({
+                        "user_id": user_id,
+                        "tag_id": tag_id
+                    }).execute()
+
+                async with _db_semaphore:
+                    await anyio.to_thread.run_sync(_create_user_tag)
 
     # Clear conversation state (flow complete)
     await clear_conversation_state(phone_number)
@@ -277,11 +284,16 @@ async def handle_interests_edit_step(phone_number: str, payload: Dict[str, Any],
         result = supabase.from_("users").select("id").eq("phone_number", phone_number).execute()
         return result.data[0]["id"] if result.data else None
 
-    user_id = await anyio.to_thread.run_sync(_get_user)
+    async with _db_semaphore:
+        user_id = await anyio.to_thread.run_sync(_get_user)
 
     if user_id:
         # Delete existing user_tags for user
-        supabase.from_("user_tags").delete().eq("user_id", user_id).execute()
+        def _delete_user_tags():
+            return supabase.from_("user_tags").delete().eq("user_id", user_id).execute()
+
+        async with _db_semaphore:
+            await anyio.to_thread.run_sync(_delete_user_tags)
 
         # For each parsed interest, create user_tags junction entries
         for interest in parsed_interests:
@@ -306,13 +318,18 @@ async def handle_interests_edit_step(phone_number: str, payload: Dict[str, Any],
                 # If not found and not custom, return None (shouldn't happen with our parsing)
                 return None
 
-            tag_id = await anyio.to_thread.run_sync(_get_or_create_tag)
+            async with _db_semaphore:
+                tag_id = await anyio.to_thread.run_sync(_get_or_create_tag)
             if tag_id:
                 # Create user_tag junction
-                supabase.from_("user_tags").insert({
-                    "user_id": user_id,
-                    "tag_id": tag_id
-                }).execute()
+                def _create_user_tag():
+                    return supabase.from_("user_tags").insert({
+                        "user_id": user_id,
+                        "tag_id": tag_id
+                    }).execute()
+
+                async with _db_semaphore:
+                    await anyio.to_thread.run_sync(_create_user_tag)
 
     # Clear conversation state (flow complete)
     await clear_conversation_state(phone_number)

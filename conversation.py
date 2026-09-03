@@ -5,6 +5,7 @@ in the Supabase database.
 """
 
 import os
+import asyncio
 from datetime import datetime, timezone
 from typing import Dict, Any, Optional
 import anyio
@@ -13,6 +14,9 @@ from database import supabase
 
 # Load environment variables
 load_dotenv()
+
+# Semaphore to limit concurrent DB operations and prevent HTTP/2 connection overload
+_db_semaphore = asyncio.Semaphore(10)  # Allow up to 10 concurrent DB operations
 
 
 async def get_conversation_state(phone_number: str) -> Optional[Dict]:
@@ -32,7 +36,8 @@ async def get_conversation_state(phone_number: str) -> Optional[Dict]:
             return result.data[0]
         return None
 
-    return await anyio.to_thread.run_sync(_get)
+    async with _db_semaphore:  # Limit concurrent DB access
+        return await anyio.to_thread.run_sync(_get)
 
 
 async def set_conversation_state(phone_number: str, flow: str, step: str, data: Dict[str, Any]) -> None:
@@ -67,7 +72,8 @@ async def set_conversation_state(phone_number: str, flow: str, step: str, data: 
 
         return result
 
-    await anyio.to_thread.run_sync(_set)
+    async with _db_semaphore:  # Limit concurrent DB access
+        await anyio.to_thread.run_sync(_set)
 
 
 async def clear_conversation_state(phone_number: str) -> None:
@@ -80,7 +86,8 @@ async def clear_conversation_state(phone_number: str) -> None:
     def _clear():
         return supabase.from_("conversation_states").delete().eq("phone_number", phone_number).execute()
 
-    await anyio.to_thread.run_sync(_clear)
+    async with _db_semaphore:  # Limit concurrent DB access
+        await anyio.to_thread.run_sync(_clear)
 
 
 async def user_exists(phone_number: str) -> bool:
@@ -96,7 +103,9 @@ async def user_exists(phone_number: str) -> bool:
     def _check():
         result = supabase.from_("users").select("id").eq("phone_number", phone_number).execute()
         return bool(result.data and len(result.data) > 0)
-    return await anyio.to_thread.run_sync(_check)
+
+    async with _db_semaphore:  # Limit concurrent DB access
+        return await anyio.to_thread.run_sync(_check)
 
 
 async def poster_exists(phone_number: str) -> bool:
@@ -112,4 +121,6 @@ async def poster_exists(phone_number: str) -> bool:
     def _check():
         result = supabase.from_("posters").select("id").eq("phone_number", phone_number).execute()
         return bool(result.data and len(result.data) > 0)
-    return await anyio.to_thread.run_sync(_check)
+
+    async with _db_semaphore:  # Limit concurrent DB access
+        return await anyio.to_thread.run_sync(_check)
