@@ -235,6 +235,22 @@ async def receive_webhook(request: Request) -> Dict[str, str]:
         logger.error(f"WEBHOOK_PAYLOAD_MISSING_PHONE_NUMBER: unable to extract wa_id from payload")
         return {"status": "error", "message": "Missing phone number in payload"}
 
+    # STEP 5.5: SKIP NON-MESSAGE EARLY - avoid unwanted welcome messages and reduce load
+    def is_message_event(payload: Dict[str, Any]) -> bool:
+        """Check if the payload contains a real message (not a status callback)."""
+        try:
+            return ("entry" in payload and len(payload["entry"]) > 0 and
+                    "changes" in payload["entry"][0] and len(payload["entry"][0]["changes"]) > 0 and
+                    "value" in payload["entry"][0]["changes"][0] and
+                    "messages" in payload["entry"][0]["changes"][0]["value"] and
+                    len(payload["entry"][0]["changes"][0]["value"]["messages"]) > 0)
+        except (KeyError, IndexError, TypeError):
+            return False
+
+    if not is_message_event(payload):
+        logger.info(f"WEBHOOK_NON_MESSAGE_EVENT: skipping processing for phone_number={phone_number}")
+        return {"status": "ok"}  # Early return, acknowledge receipt to Meta
+
     # STEP 6: BUTTON TAP DETECTION - check for Poster/User button replies to welcome message
     # This handles the case where we sent welcome buttons, user tapped one, and now we need to set initial state
     if ("entry" in payload and len(payload["entry"]) > 0 and
