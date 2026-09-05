@@ -247,7 +247,7 @@ async def handle_user_interests_step(phone_number: str, payload: Dict[str, Any],
     await clear_conversation_state(phone_number)
 
     # Show Main Menu
-    await send_main_menu(phone_number)
+    await send_main_menu(phone_number, is_returning_user=True)
 
 
 async def handle_interests_edit_step(phone_number: str, payload: Dict[str, Any], conversation_state: Dict[str, Any]) -> None:
@@ -335,7 +335,7 @@ async def handle_interests_edit_step(phone_number: str, payload: Dict[str, Any],
     await clear_conversation_state(phone_number)
 
     # Show Main Menu
-    await send_main_menu(phone_number)
+    await send_main_menu(phone_number, is_returning_user=True)
 
 
 def parse_interests(raw_text: str) -> List[Dict[str, Any]]:
