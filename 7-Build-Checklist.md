@@ -65,7 +65,8 @@ Small, sequential, individually-testable steps. Each step should be verifiable b
 - [ ] Build the "approximately N students" count-back-to-poster step before final confirmation
 - [ ] Build opportunity creation in the database, including populating `opportunity_tags`, and clear the conversation state on completion
 - [ ] Build the poster edit flow (re-walks the same fields, updates the existing row)
-- [ ] Test end to end: confirm every intermediate step correctly advances (not just the first one) — same dead-end risk as registration, now a 9-step version of it
+- [ ] Build per-post admin approval (Full-Product-Logic.md Section 16): on submission, check the poster's `requires_post_approval` flag — if `true`, create the opportunity as `pending_approval` and send the admin a preview message with **[Approve Post] / [Reject Post]** buttons (per Section 0's Interaction Type Reference); **Approve** flips status to `active` (Matching Engine trigger deferred to Phase H); **Reject** notifies the poster and leaves the opportunity out of circulation. If the flag is `false` (default), skip this entirely and proceed as already specified above. Since the admin's existing free-text command handler (`approve [id]` / `reject [id]` for poster registration, from Phase F) and this new button-based post-approval both route through the same admin phone number, explicitly confirm the two dispatch paths don't collide.
+- [ ] Test end to end: confirm every intermediate step correctly advances (not just the first one) — same dead-end risk as registration, now a 9-step version of it; additionally, confirm both `requires_post_approval = true` and `= false` paths behave correctly for at least one test poster each, and confirm the admin's free-text poster-approval command and the new post-approval buttons don't interfere with each other
 
 ## Phase H — Matching Engine
 

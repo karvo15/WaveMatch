@@ -126,6 +126,8 @@ phone_number (PK) | current_flow | current_step | collected_data (JSONB) | updat
 
 **Concept for Claude Code:** build one shared `get_conversation_state(phone_number)` / `set_conversation_state(...)` / `clear_conversation_state(...)` pair of functions, and route *every* multi-step flow through them — don't let individual flows (registration vs. posting vs. manual add) each invent their own ad-hoc way of tracking progress. One state-tracking mechanism, reused everywhere, is what makes this maintainable instead of a re-introduction of the same bug in a new flow later.
 
+**Concurrency note (learned during Phase F, applies to every module touching Supabase under load):** a shared Supabase client can hit real connection-level failures (HTTP/2 stream errors) when many webhook events — retries, status callbacks, real messages — arrive concurrently and each triggers a DB call through `anyio.to_thread.run_sync(...)`. The fix that worked: force HTTP/1.1 on the client's underlying session, and wrap DB calls in a shared `asyncio.Semaphore` to cap concurrent access. Any future module (Matching Engine's per-match sends, the Daily Scheduler's batch queries) that fires off many DB/WhatsApp calls in a short window should route through the same semaphore pattern rather than assuming unlimited concurrent throughput.
+
 ---
 
 ## 4. Message/UI Components Used

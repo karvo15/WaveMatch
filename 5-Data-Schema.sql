@@ -47,7 +47,7 @@ CREATE TABLE posters (
 -- ============================================================
 -- OPPORTUNITIES
 -- ============================================================
-CREATE TYPE opportunity_status AS ENUM ('active', 'expired', 'edited');
+CREATE TYPE opportunity_status AS ENUM ('active', 'expired', 'edited', 'pending_approval', 'rejected');
 
 CREATE TABLE opportunities (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
