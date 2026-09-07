@@ -14,6 +14,8 @@ from fastapi import Request, HTTPException
 from dotenv import load_dotenv
 from conversation import get_conversation_state, set_conversation_state, clear_conversation_state, user_exists, poster_exists
 import registration  # Import the registration module
+import poster_flow  # Import the poster flow module
+from whatsapp import send_whatsapp_message
 from database import supabase
 import anyio
 
@@ -259,16 +261,64 @@ async def receive_webhook(request: Request) -> Dict[str, str]:
         "messages" in payload["entry"][0]["changes"][0]["value"] and
         len(payload["entry"][0]["changes"][0]["value"]["messages"]) > 0 and
         "interactive" in payload["entry"][0]["changes"][0]["value"]["messages"][0] and
-        "button_reply" in payload["entry"][0]["changes"][0]["value"]["messages"][0]["interactive"]):
+        ("button_reply" in payload["entry"][0]["changes"][0]["value"]["messages"][0]["interactive"] or
+         "list_reply" in payload["entry"][0]["changes"][0]["value"]["messages"][0]["interactive"])):
 
-        button_id = payload["entry"][0]["changes"][0]["value"]["messages"][0]["interactive"]["button_reply"]["id"]
+        # Extract interactive ID (button_reply or list_reply)
+        interactive_obj = payload["entry"][0]["changes"][0]["value"]["messages"][0]["interactive"]
+        if "button_reply" in interactive_obj:
+            button_id = interactive_obj["button_reply"]["id"]
+            list_id = ""
+        elif "list_reply" in interactive_obj:
+            list_id = interactive_obj["list_reply"]["id"]
+            button_id = ""
+        else:
+            # Neither button nor list reply, fall through
+            button_id = ""
+            list_id = ""
         if button_id == "post_opportunities":
+            # Poster-approval gate: check if poster is approved before allowing to post
+            def _get_poster_status():
+                return supabase.from_("posters").select("status").eq("phone_number", phone_number).execute()
+            poster_status_result = await anyio.to_thread.run_sync(_get_poster_status)
+            if poster_status_result.data and len(poster_status_result.data) > 0:
+                poster_status = poster_status_result.data[0].get("status")
+                if poster_status != "approved":
+                    await poster_flow.send_whatsapp_message(
+                        phone_number,
+                        body="Your poster registration is still pending approval. You'll be able to post opportunities once approved."
+                    )
+                    return {"status": "ok"}
+            # If poster not found, fall through to registration flow (shouldn't happen for existing poster)
             await registration.handle_role_selection(phone_number, payload, "register_poster")
             return {"status": "ok"}
         elif button_id == "find_opportunities":
             await registration.handle_role_selection(phone_number, payload, "register_user")
             return {"status": "ok"}
-        # If it's some other button we don't recognize, fall through to normal processing
+        elif button_id == "my_posts":
+            # Show list of poster's opportunities
+            await poster_flow._handle_my_posts_button(phone_number)
+            return {"status": "ok"}
+        elif button_id == "my_applications":
+            # Show list of user's applications
+            await poster_flow._handle_my_applications_button(phone_number)
+            return {"status": "ok"}
+        elif button_id == "edit_interests":
+            # Start edit interests flow
+            await registration.handle_interests_edit_start(phone_number)
+            return {"status": "ok"}
+        # Admin post-approval button handling (approve_post_<uuid> / reject_post_<uuid>)
+        elif button_id.startswith("approve_post_") or button_id.startswith("reject_post_"):
+            # Delegate to poster_flow handler
+            result = await poster_flow.handle_admin_post_approval_button(button_id)
+            return result
+        # Handle list replies (e.g., from "My Posts" list)
+        elif list_id.startswith("select_post_"):
+            # Extract opportunity ID and set up edit flow
+            opportunity_id = list_id.split("_", 2)[2]
+            await poster_flow._handle_select_post_for_edit(phone_number, opportunity_id)
+            return {"status": "ok"}
+        # If it's some other interactive we don't recognize, fall through to normal processing
 
     # STEP 7: ADMIN NUMBER CHECK - handle admin commands before regular flows
     ADMIN_PHONE_NUMBER = os.getenv("ADMIN_PHONE_NUMBER")
@@ -318,6 +368,30 @@ async def receive_webhook(request: Request) -> Dict[str, str]:
             await registration.handle_user_interests_step(phone_number, payload, conversation_state)
         elif flow == "edit_interests" and step == "awaiting_interests":
             await registration.handle_interests_edit_step(phone_number, payload, conversation_state)
+        elif flow in ["post_opportunity", "edit_opportunity"]:
+            # Dispatch to poster_flow step handler based on step
+            if step == "awaiting_type":
+                await poster_flow.handle_opportunity_type_step(phone_number, payload, conversation_state)
+            elif step == "awaiting_title":
+                await poster_flow.handle_opportunity_title_step(phone_number, payload, conversation_state)
+            elif step == "awaiting_description":
+                await poster_flow.handle_opportunity_description_step(phone_number, payload, conversation_state)
+            elif step == "awaiting_tags":
+                await poster_flow.handle_opportunity_tags_step(phone_number, payload, conversation_state)
+            elif step == "awaiting_application_start_date":
+                await poster_flow.handle_application_start_date_step(phone_number, payload, conversation_state)
+            elif step == "awaiting_application_deadline":
+                await poster_flow.handle_application_deadline_step(phone_number, payload, conversation_state)
+            elif step == "awaiting_result_date":
+                await poster_flow.handle_result_date_step(phone_number, payload, conversation_state)
+            elif step == "awaiting_event_start_date":
+                await poster_flow.handle_event_start_date_step(phone_number, payload, conversation_state)
+            elif step == "awaiting_application_link":
+                await poster_flow.handle_application_link_step(phone_number, payload, conversation_state)
+            elif step == "awaiting_confirmation":
+                await poster_flow.handle_opportunity_confirmation_step(phone_number, payload, conversation_state)
+            else:
+                logger.warning(f"UNEXPECTED POSTER FLOW STEP: flow={flow}, step={step}")
         else:
             # Log unexpected flow/step combination for debugging
             logger.warning(f"UNEXPECTED FLOW/STEP: flow={flow}, step={step}")
