@@ -21,6 +21,8 @@ class OpportunityStatus(str, Enum):
     active = "active"
     expired = "expired"
     edited = "edited"
+    pending_approval = "pending_approval"
+    rejected = "rejected"
 
 class ApplicationStatus(str, Enum):
     available = "available"
@@ -118,6 +120,7 @@ class PosterBase(BaseModel):
     phone_number: str
     display_name: str
     status: PosterStatus = PosterStatus.pending  # pending, approved, rejected
+    requires_post_approval: bool = False  # admin toggle for per-post approval
 
 
 class PosterCreate(PosterBase):

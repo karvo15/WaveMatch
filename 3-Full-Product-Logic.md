@@ -22,6 +22,7 @@ This document describes the complete, exact behavior of the bot. It supersedes a
 | Poster: title, description | 3 | Free text | open-ended |
 | Poster: tags | 3 | Free text | same reason as user interests |
 | Poster: dates, link | 3 | Free text (or calendar picker, Section 14) | open-ended |
+| Poster: opportunity confirmation | 3 | Buttons (2) | Confirm & Send / Edit — mutually exclusive |
 | New Match Notification | 5 | Buttons (3) | Apply Now / Remind Me Later / Ignore |
 | Remind Me Later — time choice | 5.2, 6.1 | Free text (or calendar picker) | open-ended, "default" is a valid free-text reply |
 | Ongoing check-in | 6 | Buttons (3) | Remind / Continue / Finished |

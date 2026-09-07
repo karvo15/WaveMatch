@@ -250,6 +250,22 @@ async def handle_user_interests_step(phone_number: str, payload: Dict[str, Any],
     await send_main_menu(phone_number, is_returning_user=True)
 
 
+async def handle_interests_edit_start(phone_number: str) -> None:
+    """
+    Start the edit interests flow: sets conversation state to edit_interests and sends interests prompt.
+    """
+    await set_conversation_state(
+        phone_number=phone_number,
+        flow="edit_interests",
+        step="awaiting_interests",
+        data={}  # No data collected yet
+    )
+    # Send fixed category list (12 starter tags) and prompt for comma-separated interests
+    # CONFIRMED: Matches 4-Message-Flow-Examples.md line 45 exactly with "·" separators between ALL categories
+    categories_text = "Let's personalize what you see. Here are our categories:\n🎓 Scholarships · 💼 Internships · 🤝 Volunteering · 🎤 Tech Events / Conferences · 🏆 Competitions / Hackathons · 🛠️ Workshops / Trainings · 🚀 Bootcamps · 👔 Job Opportunities · 🔬 Research Opportunities · 🎗️ Fellowships · 💰 Grants / Funding · 🌐 Networking Events\n\nReply with the ones you're interested in, separated by commas (e.g. \"scholarships, tech events, volunteering\"). Not seeing something? Just type it — we'll add it."
+    await send_whatsapp_message(phone_number, body=categories_text)
+
+
 async def handle_interests_edit_step(phone_number: str, payload: Dict[str, Any], conversation_state: Dict[str, Any]) -> None:
     """
     Same as handle_user_interests_step but updates existing user's interests instead of creating new user.
@@ -411,27 +427,33 @@ def parse_interests(raw_text: str) -> List[Dict[str, Any]]:
 async def send_main_menu(phone_number: str, is_returning_user: bool = False, is_returning_poster: bool = False) -> None:
     """
     Helper to send Main Menu options based on user/poster type.
+    Per MVP constraints, a phone number is either a poster or a user, not both.
     """
     if is_returning_poster and not is_returning_user:
-        # Poster-only menu
-        await send_whatsapp_message(
+        # Poster-only menu: [➕ Post an Opportunity] [📝 My Posts]
+        await send_whatsapp_buttons(
             phone_number,
-            body="Welcome back! What would you like to do?\n[➕ Post an Opportunity] [📁 My Applications]"
+            body="Welcome back! What would you like to do?",
+            buttons=[
+                {"type": "reply", "reply": {"id": "post_opportunities", "title": "➕ Post an Opportunity"}},
+                {"type": "reply", "reply": {"id": "my_posts", "title": "📝 My Posts"}}
+            ]
         )
     elif is_returning_user and not is_returning_poster:
-        # User-only menu
-        await send_whatsapp_message(
+        # User-only menu: [📋 Available Applications] [📁 My Applications] [⚙️ Edit my interests]
+        await send_whatsapp_buttons(
             phone_number,
-            body="Welcome back! What would you like to do?\n[📋 Available Applications] [📁 My Applications] [⚙️ Edit my interests]"
-        )
-    elif is_returning_user and is_returning_poster:
-        # Both user and poster
-        await send_whatsapp_message(
-            phone_number,
-            body="Welcome back! What would you like to do?\n[➕ Post an Opportunity] [📋 Available Applications] [📁 My Applications] [⚙️ Edit my interests]"
+            body="Welcome back! What would you like to do?",
+            buttons=[
+                {"type": "reply", "reply": {"id": "find_opportunities", "title": "📋 Available Applications"}},
+                {"type": "reply", "reply": {"id": "my_applications", "title": "📁 My Applications"}},
+                {"type": "reply", "reply": {"id": "edit_interests", "title": "⚙️ Edit my interests"}}
+            ]
         )
     else:
         # Shouldn't reach here if called properly, but fallback
+        # Determine if this is likely a poster or user based on context
+        # For first contact, we show the role selection menu elsewhere
         await send_whatsapp_message(
             phone_number,
             body="Welcome to WaveMatch! What would you like to do?\n[📋 Available Applications] [📁 My Applications]"

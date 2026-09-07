@@ -219,4 +219,6 @@ __marimo__/
 
 *.backup
 *.bak
+temp_*
+webhook_consolidated_dispatch.txt
 plans/

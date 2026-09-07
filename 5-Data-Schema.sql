@@ -41,6 +41,7 @@ CREATE TABLE posters (
     phone_number TEXT NOT NULL UNIQUE,
     display_name TEXT NOT NULL,
     status poster_status NOT NULL DEFAULT 'pending',
+    requires_post_approval BOOLEAN NOT NULL DEFAULT false,  -- admin toggle for per-post approval
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 

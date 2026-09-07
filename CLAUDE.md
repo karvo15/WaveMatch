@@ -64,7 +64,90 @@
   `v2-hotfix-http2-concurrency` also exists in git history as an earlier, 
   since-superseded checkpoint from mid-session — `v3` is the one that reflects the fully 
   verified end state; don't confuse the two).
-- **Phase G (Poster Posting Flow):** next up. Reuses the layered tag-matching logic 
-  already built in Phase F (`parse_interests()` in `registration.py`) — per 
-  `7-Build-Checklist.md` Phase N's explicit note, this should be shared/reused for 
-  poster tag parsing, not rebuilt from scratch.
+- **Phase G (Poster Posting Flow): implementation exists, NOT YET COMPLETE — do not
+  mark done, do not proceed to Phase H.** `poster_flow.py` created, `webhook.py` 
+  modified, `3-Full-Product-Logic.md` Section 0 updated with two new interaction-type 
+  rows (opportunity confirmation buttons, admin post-approval buttons). Schema fix 
+  applied and confirmed live: `opportunity_status` enum extended with `pending_approval` 
+  and `rejected` via `ALTER TYPE` (run directly in Supabase, `5-Data-Schema.sql` updated 
+  to match) — this was a real pre-existing gap between the schema and 
+  `3-Full-Product-Logic.md` Section 16, not something introduced this phase.
+
+  Multiple real bugs found and fixed across several review rounds, each verified via 
+  direct full-file reads (not summaries):
+  - `_create_opportunity_tag()` was called but never defined — guaranteed crash on any 
+    confirmed post with tags. Fixed.
+  - `handle_opportunity_confirmation_step()` didn't branch on `current_flow`, so an edit 
+    would silently INSERT a duplicate opportunity instead of UPDATE-ing the original. 
+    Fixed — now correctly routes to update-path when `current_flow == "edit_opportunity"`.
+  - No entry point existed into the edit flow at all (step handlers existed, nothing set 
+    `conversation_state` to enter them) — fixed by adding a `[📝 My Posts]` button → 
+    WhatsApp list of the poster's own opportunities → row selection sets 
+    `flow='edit_opportunity'`, `opportunity_id` populated, existing field values 
+    pre-filled into `collected_data`.
+  - A "hybrid" main menu briefly existed showing both poster and user menu items 
+    simultaneously — violates the explicit one-time-fork rule in 
+    `1-Product-Plan.md` Section 4 / `3-Full-Product-Logic.md` Section 1.1 (a phone 
+    number is never both). Root cause: dead-code `elif is_returning_user and 
+    is_returning_poster` branch. Removed; poster-only menu is now 
+    `[➕ Post an Opportunity] [📝 My Posts]` (2 buttons — "My Applications" correctly 
+    excluded from the poster menu since `applications.user_id` references `users`, not 
+    `posters`, per the schema).
+  - Menu items were initially sent as plain text with bracket-decorated labels (e.g. 
+    `"[📝 My Posts]"` inside a `send_whatsapp_message()` body) rather than real WhatsApp 
+    interactive buttons — nothing was actually tappable. This was pre-existing behavior 
+    carried over from Phase F, not a regression introduced this phase, but is now fixed 
+    for the poster-only and user-only menus via real `send_whatsapp_buttons()` calls.
+  - `_handle_my_posts_button()`'s list-row title truncation didn't account for the 
+    prepended status emoji + space, risking exceeding WhatsApp's 24-char row-title limit 
+    (`6-Platform-Constraints.md` §10.1 — the same class of failure already confirmed live 
+    via `(#131009)` earlier in the project). Fixed with dynamic length calculation based 
+    on the actual emoji length.
+  - Admin post-approval redesigned to be fully stateless: `opportunity_id` is encoded 
+    directly in the button ID (`approve_post_<uuid>` / `reject_post_<uuid>`) rather than 
+    relying on `conversation_states` (which is keyed by phone_number and would silently 
+    clobber a second pending approval for the same admin). Includes a status-check guard 
+    before acting (only proceeds if the opportunity is still `pending_approval`), which 
+    protects against both stale webhook retries and genuine admin double-taps.
+  - Edit-flow prompts briefly claimed a poster could "keep current" a field's value with 
+    no code actually supporting that — misleading UI text corrected to match real 
+    behavior (edit currently requires re-entering all 9 fields; true partial-edit support 
+    is a possible future improvement, not built now).
+  - `_handle_my_applications_button()` is a deliberate stub (Phase N builds the real 
+    My Applications list views per `7-Build-Checklist.md`) — exists only to prevent a 
+    `NameError` crash if a user taps that menu item early.
+
+  **Confirmed outstanding as of the last direct full-file read — NOT yet fixed:**
+  1. `webhook.py` calls `send_whatsapp_message()`, `_handle_my_posts_button()`, 
+     `_handle_my_applications_button()`, and `_handle_select_post_for_edit()` as bare 
+     unqualified names. `send_whatsapp_message` is never imported in `webhook.py`; the 
+     other three are defined in `poster_flow.py` and need the `poster_flow.` prefix 
+     (compare to the correctly-prefixed `poster_flow.handle_opportunity_type_step` calls 
+     elsewhere in the same file). **Will raise `NameError`** on: the poster-approval 
+     gate, tapping "My Posts", tapping "My Applications", and selecting a post from the 
+     edit list.
+  2. The outer guard in `webhook.py` STEP 6 only checks for `"button_reply"` before 
+     entering the interactive-message handling block. A WhatsApp list selection (e.g. 
+     from "My Posts") arrives with `"list_reply"`, not `"button_reply"` — so the block, 
+     including the `select_post_` dispatch, is **never reached** for any list tap. The 
+     edit entry point is currently unreachable by its actual intended trigger, 
+     independent of bug #1.
+  3. In `poster_flow.py`'s `handle_opportunity_confirmation_step()`, 
+     `parsed_interests = conv_state.get("parsed_interests", [])` appears twice (create 
+     and edit branches) but `parsed_interests` was stored inside `collected_data`, not 
+     as a top-level key on `conv_state` (compare to `conv_state["collected_data"].get
+     ("opportunity_id")`, done correctly a few lines below in the same function). This 
+     line always evaluates to an empty list — **every opportunity created or edited 
+     silently gets zero tags attached**, no crash, no error shown to the poster.
+
+  None of these three have been confirmed fixed via a direct file read since they were 
+  identified. **Do not trust a "done"/"verified" self-report for this phase without 
+  re-reading the actual current `webhook.py` and `poster_flow.py` in full first** — this 
+  phase has already produced multiple confident "complete" reports that turned out, on 
+  direct file inspection, to still contain the exact bug just described as fixed.
+
+  Not yet pushed to GitHub, not yet deployed, not yet tested live. `git status` as of 
+  the last check showed several untracked scratch files 
+  (`temp_fixed_func.py`, `temp_head.py`, `temp_tail.py`, `test_poster_flow.py`, 
+  `.bak`/`.backup` files) that should NOT be staged — only `poster_flow.py`, `webhook.py`, 
+  and `3-Full-Product-Logic.md` are the real Phase G deliverable.
