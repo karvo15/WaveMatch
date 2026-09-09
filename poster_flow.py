@@ -34,7 +34,6 @@ async def _get_poster_id_from_phone(phone_number: str) -> Optional[str]:
         return res.data[0]["id"]
     return None
 
-
 async def _create_opportunity(collected_data: Dict[str, Any]) -> Optional[str]:
     """Insert a new opportunity and return its ID."""
     def _create():
@@ -78,7 +77,6 @@ async def _get_or_create_tag(tag_name: str, is_custom: bool) -> Optional[str]:
     async with _db_semaphore:
         return await anyio.to_thread.run_sync(_get_or_create)
 
-
 async def _count_matched_users(tag_ids: List[str]) -> int:
     """Count distinct users who have at least one of the given tag IDs."""
     def _count():
@@ -90,7 +88,6 @@ async def _count_matched_users(tag_ids: List[str]) -> int:
     async with _db_semaphore:
         return await anyio.to_thread.run_sync(_count)
 
-
 async def _get_opportunity_by_id(opportunity_id: str) -> Optional[Dict[str, Any]]:
     """Fetch opportunity by ID."""
     def _get():
@@ -100,7 +97,6 @@ async def _get_opportunity_by_id(opportunity_id: str) -> Optional[Dict[str, Any]
     if res.data and len(res.data) > 0:
         return res.data[0]
     return None
-
 
 async def _update_opportunity(opportunity_id: str, collected_data: Dict[str, Any]) -> None:
     """Update opportunity fields."""
@@ -117,14 +113,12 @@ async def _update_opportunity(opportunity_id: str, collected_data: Dict[str, Any
     async with _db_semaphore:
         await anyio.to_thread.run_sync(_update)
 
-
 async def _delete_opportunity_tags(opportunity_id: str) -> None:
     """Delete all tag links for an opportunity."""
     def _delete():
         return supabase.from_("opportunity_tags").delete().eq("opportunity_id", opportunity_id).execute()
     async with _db_semaphore:
         await anyio.to_thread.run_sync(_delete)
-
 
 async def _create_opportunity_tag(opportunity_id: str, tag_id: str) -> None:
     """Create a link between opportunity and tag."""
@@ -135,7 +129,6 @@ async def _create_opportunity_tag(opportunity_id: str, tag_id: str) -> None:
         }).execute()
     async with _db_semaphore:
         await anyio.to_thread.run_sync(_create)
-
 
 def _parse_date(date_str: str) -> Optional[date]:
     """Parse a date string in YYYY-MM-DD format; return None if invalid or empty."""
@@ -148,7 +141,6 @@ def _parse_date(date_str: str) -> Optional[date]:
         return datetime.strptime(date_str, "%Y-%m-%d").date()
     except ValueError:
         return None
-
 
 def _get_current_field_values(collected_data: Dict[str, Any], step: str) -> Dict[str, Any]:
     """Return current values for fields relevant to a given step, for edit button."""
@@ -167,7 +159,6 @@ def _get_current_field_values(collected_data: Dict[str, Any], step: str) -> Dict
     if field and field in collected_data:
         return {field: collected_data[field]}
     return {}
-
 
 async def handle_opportunity_type_step(phone_number: str, payload: Dict[str, Any], conversation_state: Dict[str, Any]) -> None:
     """Process opportunity type input."""
@@ -200,7 +191,6 @@ async def handle_opportunity_type_step(phone_number: str, payload: Dict[str, Any
     )
     await send_whatsapp_message(phone_number, body="Please enter a title for the opportunity.")
 
-
 async def handle_opportunity_title_step(phone_number: str, payload: Dict[str, Any], conversation_state: Dict[str, Any]) -> None:
     """Process opportunity title input."""
     title = ""
@@ -231,7 +221,6 @@ async def handle_opportunity_title_step(phone_number: str, payload: Dict[str, An
         data={"title": title}
     )
     await send_whatsapp_message(phone_number, body="Please enter a description for the opportunity.")
-
 
 async def handle_opportunity_description_step(phone_number: str, payload: Dict[str, Any], conversation_state: Dict[str, Any]) -> None:
     """Process opportunity description input."""
@@ -267,7 +256,6 @@ async def handle_opportunity_description_step(phone_number: str, payload: Dict[s
         body="Please enter tags for the opportunity, separated by commas (e.g., \"scholarships, tech events, volunteering\"). "
              "You can also type new tags; we'll add them."
     )
-
 
 async def handle_opportunity_tags_step(phone_number: str, payload: Dict[str, Any], conversation_state: Dict[str, Any]) -> None:
     """Process opportunity tags input."""
@@ -330,7 +318,6 @@ async def handle_opportunity_tags_step(phone_number: str, payload: Dict[str, Any
              f"Application start date?"
     )
 
-
 async def handle_application_start_date_step(phone_number: str, payload: Dict[str, Any], conversation_state: Dict[str, Any]) -> None:
     """Process application start date input."""
     date_str = ""
@@ -362,7 +349,6 @@ async def handle_application_start_date_step(phone_number: str, payload: Dict[st
         data={"application_start_date": parsed_date.isoformat()}
     )
     await send_whatsapp_message(phone_number, body="Please enter the application deadline date.")
-
 
 async def handle_application_deadline_step(phone_number: str, payload: Dict[str, Any], conversation_state: Dict[str, Any]) -> None:
     """Process application deadline input."""
@@ -398,7 +384,6 @@ async def handle_application_deadline_step(phone_number: str, payload: Dict[str,
         phone_number,
         body="Please enter the result announcement date (or type 'skip' if not applicable)."
     )
-
 
 async def handle_result_date_step(phone_number: str, payload: Dict[str, Any], conversation_state: Dict[str, Any]) -> None:
     """Process result date input (can be skipped)."""
@@ -449,7 +434,6 @@ async def handle_result_date_step(phone_number: str, payload: Dict[str, Any], co
         body="Please enter the event/program start date (or type 'skip' if not applicable)."
     )
 
-
 async def handle_event_start_date_step(phone_number: str, payload: Dict[str, Any], conversation_state: Dict[str, Any]) -> None:
     """Process event start date input (can be skipped)."""
     date_str = ""
@@ -492,7 +476,6 @@ async def handle_event_start_date_step(phone_number: str, payload: Dict[str, Any
         data={"event_start_date": parsed_date.isoformat()}
     )
     await send_whatsapp_message(phone_number, body="Please enter the application link (URL).")
-
 
 # ============================================================
 # STEP 9: APPLICATION LINK INPUT
@@ -563,7 +546,6 @@ async def handle_application_link_step(phone_number: str, payload: Dict[str, Any
         ]
     )
 
-
 # ============================================================
 # STEP 10: OPPORTUNITY CONFIRMATION (Confirm & Send / Edit)
 # ============================================================
@@ -610,7 +592,6 @@ async def handle_opportunity_confirmation_step(phone_number: str, payload: Dict[
             ]
         )
 
-
 async def _confirm_and_send_opportunity(phone_number: str, conversation_state: Dict[str, Any]) -> None:
     """Create or update the opportunity, create tags, and clean up conversation state."""
     cd = conversation_state.get("collected_data", {})
@@ -648,53 +629,107 @@ async def _confirm_and_send_opportunity(phone_number: str, conversation_state: D
     }
 
     if flow == "edit_opportunity" and opportunity_id:
-        # UPDATE existing opportunity
-        await _update_opportunity(opportunity_id, opp_data)
-        # Delete old tags
-        await _delete_opportunity_tags(opportunity_id)
-        # Create new tags
-        for interest in parsed_interests:
-            tag_id = await _get_or_create_tag(interest["name"], interest["is_custom"])
-            if tag_id:
-                await _create_opportunity_tag(opportunity_id, tag_id)
-        # Clear state
-        await clear_conversation_state(phone_number)
+
+        try:
+            # UPDATE existing opportunity
+            await _update_opportunity(opportunity_id, opp_data)
+            # Delete old tags
+            await _delete_opportunity_tags(opportunity_id)
+            # Create new tags (skip repeats -- duplicate tag terms resolve to one tag_id,
+            # and re-inserting the same (opportunity_id, tag_id) violates the PK)
+            inserted_tag_ids = set()
+            for interest in parsed_interests:
+                tag_id = await _get_or_create_tag(interest["name"], interest["is_custom"])
+                if tag_id and tag_id not in inserted_tag_ids:
+                    inserted_tag_ids.add(tag_id)
+                    await _create_opportunity_tag(opportunity_id, tag_id)
+            # Clear state (flow complete)
+            await clear_conversation_state(phone_number)
+        except Exception:
+            # A mid-way failure must never leave the poster frozen at confirm with no reply.
+            # Reset to a safe state and tell them instead of a bare 500 that Meta retries
+            # into the message-id dedup black hole.
+            logger.exception(f"OPPORTUNITY_CONFIRM_EDIT_FAILED: phone_number={phone_number}")
+            try:
+                await clear_conversation_state(phone_number)
+            except Exception:
+                logger.exception(f"OPPORTUNITY_CONFIRM_EDIT_CLEAR_STATE_FAILED: phone_number={phone_number}")
+            try:
+                await send_whatsapp_message(
+                    phone_number,
+                    body="Something went wrong while saving your changes. Please try again."
+                )
+            except Exception:
+                logger.exception(f"OPPORTUNITY_CONFIRM_EDIT_NOTIFY_FAILED: phone_number={phone_number}")
+            return
         await send_whatsapp_message(
             phone_number,
             body="\u2705 Your opportunity has been updated! All tracked users will be notified of the changes."
         )
     else:
         # CREATE new opportunity
-        # Check requires_post_approval flag
-        def _get_poster_approval_flag():
-            result = supabase.from_("posters").select("requires_post_approval").eq("id", poster_id).execute()
-            return result.data[0].get("requires_post_approval", False) if result.data else False
 
-        async with _db_semaphore:
-            requires_approval = await anyio.to_thread.run_sync(_get_poster_approval_flag)
+        new_opp_id = None
+        try:
+            # Check requires_post_approval flag
+            def _get_poster_approval_flag():
+                result = supabase.from_("posters").select("requires_post_approval").eq("id", poster_id).execute()
+                return result.data[0].get("requires_post_approval", False) if result.data else False
 
-        if requires_approval:
-            opp_data["status"] = "pending_approval"
-        else:
-            opp_data["status"] = "active"
+            async with _db_semaphore:
+                requires_approval = await anyio.to_thread.run_sync(_get_poster_approval_flag)
 
-        # Create opportunity
-        new_opp_id = await _create_opportunity(opp_data)
-        if not new_opp_id:
-            await send_whatsapp_message(
-                phone_number,
-                body="Error: Could not create the opportunity. Please try again."
-            )
+            if requires_approval:
+                opp_data["status"] = "pending_approval"
+            else:
+                opp_data["status"] = "active"
+
+            # Create opportunity
+            new_opp_id = await _create_opportunity(opp_data)
+            if not new_opp_id:
+                await send_whatsapp_message(
+                    phone_number,
+                    body="Error: Could not create the opportunity. Please try again."
+                )
+                return
+
+            # Create opportunity tags (skip repeats -- duplicate tag terms resolve to one
+            # tag_id, and re-inserting the same (opportunity_id, tag_id) violates the PK)
+            inserted_tag_ids = set()
+            for interest in parsed_interests:
+                tag_id = await _get_or_create_tag(interest["name"], interest["is_custom"])
+                if tag_id and tag_id not in inserted_tag_ids:
+                    inserted_tag_ids.add(tag_id)
+                    await _create_opportunity_tag(new_opp_id, tag_id)
+
+            # Clear state (flow complete)
+            await clear_conversation_state(phone_number)
+        except Exception:
+            # A mid-way failure (e.g. duplicate tag insert) must never leave the poster
+            # frozen at confirm with a partial/orphan live post and no reply. Roll back
+            # the just-created opportunity (cascades its tags) and reset to a safe state
+            # instead of a bare 500 that Meta retries into the dedup black hole.
+            logger.exception(f"OPPORTUNITY_CONFIRM_CREATE_FAILED: phone_number={phone_number}")
+            if new_opp_id:
+                try:
+                    def _delete_opportunity():
+                        return supabase.from_("opportunities").delete().eq("id", new_opp_id).execute()
+                    async with _db_semaphore:
+                        await anyio.to_thread.run_sync(_delete_opportunity)
+                except Exception:
+                    logger.exception(f"OPPORTUNITY_CONFIRM_ROLLBACK_FAILED: opportunity_id={new_opp_id}")
+            try:
+                await clear_conversation_state(phone_number)
+            except Exception:
+                logger.exception(f"OPPORTUNITY_CONFIRM_CLEAR_STATE_FAILED: phone_number={phone_number}")
+            try:
+                await send_whatsapp_message(
+                    phone_number,
+                    body="Something went wrong while publishing your opportunity. Nothing was published - please try again."
+                )
+            except Exception:
+                logger.exception(f"OPPORTUNITY_CONFIRM_NOTIFY_FAILED: phone_number={phone_number}")
             return
-
-        # Create opportunity tags
-        for interest in parsed_interests:
-            tag_id = await _get_or_create_tag(interest["name"], interest["is_custom"])
-            if tag_id:
-                await _create_opportunity_tag(new_opp_id, tag_id)
-
-        # Clear state
-        await clear_conversation_state(phone_number)
 
         if requires_approval:
             await send_whatsapp_message(
@@ -723,7 +758,6 @@ async def _confirm_and_send_opportunity(phone_number: str, conversation_state: D
         else:
             await send_whatsapp_message(phone_number, body="Sent! \U0001f389")
             # TODO: Phase H -- Run Matching Engine here
-
 
 # ============================================================
 # MY POSTS BUTTON -- List poster's opportunities for editing
@@ -798,7 +832,6 @@ async def _handle_my_posts_button(phone_number: str) -> None:
         }]
     )
 
-
 # ============================================================
 # MY APPLICATIONS BUTTON -- Stub (Phase N builds real list views)
 # ============================================================
@@ -809,7 +842,6 @@ async def _handle_my_applications_button(phone_number: str) -> None:
         phone_number,
         body="\U0001f4c1 My Applications feature is coming soon! You'll be able to view your Ongoing, Under Review, and Scheduled applications here."
     )
-
 
 # ============================================================
 # SELECT POST FOR EDIT -- Pre-fill data and start edit flow
@@ -870,7 +902,6 @@ async def _handle_select_post_for_edit(phone_number: str, opportunity_id: str) -
     if current_type:
         prompt = f"Current type: {current_type}\nPlease enter the type:"
     await send_whatsapp_message(phone_number, body=prompt)
-
 
 # ============================================================
 # ADMIN POST APPROVAL BUTTON -- Stateless approve/reject handler
