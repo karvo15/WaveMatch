@@ -750,7 +750,7 @@ async def _handle_my_posts_button(phone_number: str) -> None:
     if not result.data or len(result.data) == 0:
         await send_whatsapp_message(
             phone_number,
-            body="You haven't posted any opportunities yet. Tap 'Post an Opportunity' to create one."
+            body="You haven't posted any opportunities yet. Tap 'Post Opportunity' to create one."
         )
         return
 

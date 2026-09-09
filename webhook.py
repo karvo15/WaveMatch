@@ -15,7 +15,7 @@ from dotenv import load_dotenv
 from conversation import get_conversation_state, set_conversation_state, clear_conversation_state, user_exists, poster_exists
 import registration  # Import the registration module
 import poster_flow  # Import the poster flow module
-from whatsapp import send_whatsapp_message
+from whatsapp import send_whatsapp_message, send_whatsapp_buttons
 from database import supabase
 import anyio
 
@@ -129,13 +129,20 @@ async def handle_admin_command(phone_number: str, payload: Dict[str, Any]) -> No
         display_name = poster_info["display_name"]
         poster_phone_number = poster_info["phone_number"]
         # Notify poster of outcome via WhatsApp (send to poster's phone number, not admin's)
-        from whatsapp import send_whatsapp_message
         if action == "approve":
-            outcome_message = f"✅ You're approved! Tap below anytime to post a new opportunity."
+            # Send a real tappable "Post an Opportunity" button so the approved poster can start posting
+            await send_whatsapp_buttons(
+                poster_phone_number,
+                body="✅ You're approved! Tap below anytime to post a new opportunity.",
+                buttons=[
+                    {"type": "reply", "reply": {"id": "post_opportunities", "title": "➕ Post Opportunity"}}
+                ]
+            )
         else:
-            outcome_message = f"❌ Your registration was rejected. Please contact support if you believe this is in error."
-
-        await send_whatsapp_message(poster_phone_number, body=outcome_message)
+            await send_whatsapp_message(
+                poster_phone_number,
+                body="❌ Your registration was rejected. Please contact support if you believe this is in error."
+            )
 
         # Also send a confirmation to admin (optional)
         admin_confirmation = f"Poster '{display_name}' has been {action}ed."
@@ -289,7 +296,21 @@ async def receive_webhook(request: Request) -> Dict[str, str]:
                         body="Your poster registration is still pending approval. You'll be able to post opportunities once approved."
                     )
                     return {"status": "ok"}
-            # If poster not found, fall through to registration flow (shouldn't happen for existing poster)
+                # Approved poster -> start a NEW posting flow. Clear any stale state first so old
+                # collected_data can't merge in (mirrors how the edit flow starts).
+                await clear_conversation_state(phone_number)
+                await set_conversation_state(
+                    phone_number=phone_number,
+                    flow="post_opportunity",
+                    step="awaiting_type",
+                    data={}  # No data collected yet
+                )
+                await poster_flow.send_whatsapp_message(
+                    phone_number,
+                    body="What type of opportunity is this? (meeting / volunteering / event / scholarship / other)"
+                )
+                return {"status": "ok"}
+            # Poster row not found -> new first-contact poster: start poster registration flow
             await registration.handle_role_selection(phone_number, payload, "register_poster")
             return {"status": "ok"}
         elif button_id == "find_opportunities":
