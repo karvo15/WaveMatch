@@ -566,6 +566,9 @@ async def handle_opportunity_confirmation_step(phone_number: str, payload: Dict[
     except (KeyError, IndexError, TypeError):
         button_id = ""
 
+    logger.info(f"OPPORTUNITY_CONFIRM_TAP: phone_number={phone_number} button_id='{button_id}' "
+                f"flow={conversation_state.get('current_flow')} step={conversation_state.get('current_step')}")
+
     if button_id == "confirm_send":
         await _confirm_and_send_opportunity(phone_number, conversation_state)
     elif button_id == "edit_post":
@@ -596,6 +599,9 @@ async def _confirm_and_send_opportunity(phone_number: str, conversation_state: D
     """Create or update the opportunity, create tags, and clean up conversation state."""
     cd = conversation_state.get("collected_data", {})
     flow = conversation_state["current_flow"]
+    logger.info(f"OPPORTUNITY_CONFIRM_START: phone_number={phone_number} flow={flow} "
+                f"has_opportunity_id={bool(cd.get('opportunity_id'))} has_poster_id={bool(cd.get('poster_id'))} "
+                f"collected_keys={sorted(cd.keys())}")
 
     # Get poster_id and opportunity_id based on flow
     if flow == "edit_opportunity":
@@ -645,6 +651,7 @@ async def _confirm_and_send_opportunity(phone_number: str, conversation_state: D
                     await _create_opportunity_tag(opportunity_id, tag_id)
             # Clear state (flow complete)
             await clear_conversation_state(phone_number)
+            logger.info(f"OPPORTUNITY_CONFIRM_UPDATE_OK: phone_number={phone_number} opportunity_id={opportunity_id}")
         except Exception:
             # A mid-way failure must never leave the poster frozen at confirm with no reply.
             # Reset to a safe state and tell them instead of a bare 500 that Meta retries
@@ -730,6 +737,9 @@ async def _confirm_and_send_opportunity(phone_number: str, conversation_state: D
             except Exception:
                 logger.exception(f"OPPORTUNITY_CONFIRM_NOTIFY_FAILED: phone_number={phone_number}")
             return
+
+        logger.info(f"OPPORTUNITY_CONFIRM_CREATE_OK: phone_number={phone_number} "
+                    f"opportunity_id={new_opp_id} requires_approval={requires_approval}")
 
         if requires_approval:
             await send_whatsapp_message(

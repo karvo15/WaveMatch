@@ -382,6 +382,7 @@ async def receive_webhook(request: Request) -> Dict[str, str]:
         # Route to handler for (conversation_state['current_flow'], conversation_state['current_step'])
         flow = conversation_state["current_flow"]
         step = conversation_state["current_step"]
+        logger.info(f"WEBHOOK_MID_FLOW_ROUTE: phone_number={phone_number} flow={flow} step={step}")
 
         if flow == "register_poster" and step == "awaiting_display_name":
             await registration.handle_poster_display_name_step(phone_number, payload, conversation_state)
