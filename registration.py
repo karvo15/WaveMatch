@@ -430,22 +430,24 @@ async def send_main_menu(phone_number: str, is_returning_user: bool = False, is_
     Per MVP constraints, a phone number is either a poster or a user, not both.
     """
     if is_returning_poster and not is_returning_user:
-        # Poster-only menu: [➕ Post an Opportunity] [📝 My Posts]
+        # Poster-only menu: [➕ Post Opportunity] [📝 My Posts]
+        # ("➕ Post an Opportunity" was 21 chars > WhatsApp's 20-char button-title limit)
         await send_whatsapp_buttons(
             phone_number,
             body="Welcome back! What would you like to do?",
             buttons=[
-                {"type": "reply", "reply": {"id": "post_opportunities", "title": "➕ Post an Opportunity"}},
+                {"type": "reply", "reply": {"id": "post_opportunities", "title": "➕ Post Opportunity"}},
                 {"type": "reply", "reply": {"id": "my_posts", "title": "📝 My Posts"}}
             ]
         )
     elif is_returning_user and not is_returning_poster:
-        # User-only menu: [📋 Available Applications] [📁 My Applications] [⚙️ Edit my interests]
+        # User-only menu: [📋 Available Apps] [📁 My Applications] [⚙️ Edit my interests]
+        # ("📋 Available Applications" was 24 chars > WhatsApp's 20-char button-title limit)
         await send_whatsapp_buttons(
             phone_number,
             body="Welcome back! What would you like to do?",
             buttons=[
-                {"type": "reply", "reply": {"id": "find_opportunities", "title": "📋 Available Applications"}},
+                {"type": "reply", "reply": {"id": "find_opportunities", "title": "📋 Available Apps"}},
                 {"type": "reply", "reply": {"id": "my_applications", "title": "📁 My Applications"}},
                 {"type": "reply", "reply": {"id": "edit_interests", "title": "⚙️ Edit my interests"}}
             ]
@@ -456,5 +458,5 @@ async def send_main_menu(phone_number: str, is_returning_user: bool = False, is_
         # For first contact, we show the role selection menu elsewhere
         await send_whatsapp_message(
             phone_number,
-            body="Welcome to WaveMatch! What would you like to do?\n[📋 Available Applications] [📁 My Applications]"
+            body="Welcome to WaveMatch! What would you like to do?\n[📋 Available Apps] [📁 My Applications]"
         )

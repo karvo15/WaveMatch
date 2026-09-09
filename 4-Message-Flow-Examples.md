@@ -32,7 +32,7 @@ These are illustrative sample conversations for every touchpoint in the bot. Exa
 
 **→ Poster receives:**
 > ✅ You're approved! Tap below anytime to post a new opportunity.
-> [➕ Post an Opportunity]
+> [➕ Post Opportunity]
 
 ---
 
@@ -52,13 +52,13 @@ These are illustrative sample conversations for every touchpoint in the bot. Exa
 
 **Bot:**
 > Got it — Scholarships, Tech Events / Conferences, Competitions / Hackathons. Here's your menu:
-> [📋 Available Applications] [📁 My Applications]
+> [📋 Available Apps] [📁 My Applications]
 
 ---
 
 ## 4. Poster Creates an Opportunity
 
-**Poster taps [➕ Post an Opportunity]**
+**Poster taps [➕ Post Opportunity]**
 
 **Bot:**
 > What type of opportunity is this? (meeting / volunteering / event / scholarship / other)
@@ -242,7 +242,7 @@ These are illustrative sample conversations for every touchpoint in the bot. Exa
 
 ## 11. Available Applications / My Applications Views (List Message)
 
-**User taps [📋 Available Applications]**
+**User taps [📋 Available Apps]**
 
 **Bot:** *(List message)*
 > **Available Applications**

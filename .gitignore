@@ -222,3 +222,7 @@ __marimo__/
 temp_*
 webhook_consolidated_dispatch.txt
 plans/
+
+# Scratch/one-off artifacts from an earlier session — kept on disk locally, not tracked
+IMPLEMENTATION_COMPLETE.md
+test_poster_flow.py

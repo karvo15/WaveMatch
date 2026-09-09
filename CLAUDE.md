@@ -64,8 +64,8 @@
   `v2-hotfix-http2-concurrency` also exists in git history as an earlier, 
   since-superseded checkpoint from mid-session — `v3` is the one that reflects the fully 
   verified end state; don't confuse the two).
-- **Phase G (Poster Posting Flow): implementation exists, NOT YET COMPLETE — do not
-  mark done, do not proceed to Phase H.** `poster_flow.py` created, `webhook.py` 
+- **Phase G (Poster Posting Flow): implementation code COMPLETE and pushed — the second full-phase live re-test is the
+  only remaining gate; do not mark done, do not proceed to Phase H.** `poster_flow.py` created, `webhook.py` 
   modified, `3-Full-Product-Logic.md` Section 0 updated with two new interaction-type 
   rows (opportunity confirmation buttons, admin post-approval buttons). Schema fix 
   applied and confirmed live: `opportunity_status` enum extended with `pending_approval` 
@@ -90,7 +90,8 @@
     `1-Product-Plan.md` Section 4 / `3-Full-Product-Logic.md` Section 1.1 (a phone 
     number is never both). Root cause: dead-code `elif is_returning_user and 
     is_returning_poster` branch. Removed; poster-only menu is now 
-    `[➕ Post an Opportunity] [📝 My Posts]` (2 buttons — "My Applications" correctly 
+    `[➕ Post Opportunity] [📝 My Posts]` (2 buttons — label shortened from 21 chars to
+    fit WhatsApp's 20-char limit — "My Applications" correctly 
     excluded from the poster menu since `applications.user_id` references `users`, not 
     `posters`, per the schema).
   - Menu items were initially sent as plain text with bracket-decorated labels (e.g. 
@@ -117,37 +118,37 @@
     My Applications list views per `7-Build-Checklist.md`) — exists only to prevent a 
     `NameError` crash if a user taps that menu item early.
 
-  **Confirmed outstanding as of the last direct full-file read — NOT yet fixed:**
-  1. `webhook.py` calls `send_whatsapp_message()`, `_handle_my_posts_button()`, 
-     `_handle_my_applications_button()`, and `_handle_select_post_for_edit()` as bare 
-     unqualified names. `send_whatsapp_message` is never imported in `webhook.py`; the 
-     other three are defined in `poster_flow.py` and need the `poster_flow.` prefix 
-     (compare to the correctly-prefixed `poster_flow.handle_opportunity_type_step` calls 
-     elsewhere in the same file). **Will raise `NameError`** on: the poster-approval 
-     gate, tapping "My Posts", tapping "My Applications", and selecting a post from the 
-     edit list.
-  2. The outer guard in `webhook.py` STEP 6 only checks for `"button_reply"` before 
-     entering the interactive-message handling block. A WhatsApp list selection (e.g. 
-     from "My Posts") arrives with `"list_reply"`, not `"button_reply"` — so the block, 
-     including the `select_post_` dispatch, is **never reached** for any list tap. The 
-     edit entry point is currently unreachable by its actual intended trigger, 
-     independent of bug #1.
-  3. In `poster_flow.py`'s `handle_opportunity_confirmation_step()`, 
-     `parsed_interests = conv_state.get("parsed_interests", [])` appears twice (create 
-     and edit branches) but `parsed_interests` was stored inside `collected_data`, not 
-     as a top-level key on `conv_state` (compare to `conv_state["collected_data"].get
-     ("opportunity_id")`, done correctly a few lines below in the same function). This 
-     line always evaluates to an empty list — **every opportunity created or edited 
-     silently gets zero tags attached**, no crash, no error shown to the poster.
+  **All previously-flagged code issues are FIXED and verified via direct full-file
+  reads (commit `8c12493`):** STEP 6 now matches `button_reply` or `list_reply`; all
+  `webhook.py` calls use fully-qualified `poster_flow.*` names with
+  `send_whatsapp_message` imported at module top; `handle_opportunity_confirmation_step`
+  reads `parsed_interests` from `collected_data` so tags are attached on create/edit.
 
-  None of these three have been confirmed fixed via a direct file read since they were 
-  identified. **Do not trust a "done"/"verified" self-report for this phase without 
-  re-reading the actual current `webhook.py` and `poster_flow.py` in full first** — this 
-  phase has already produced multiple confident "complete" reports that turned out, on 
-  direct file inspection, to still contain the exact bug just described as fixed.
+  **Bugs found during the first full-phase live-test attempt — FIXED in this session's
+  working tree, pending re-test:**
+  1. STEP 6 `post_opportunities` fell through to poster *registration* for an
+     already-approved poster (silent dead-end — tapping "Post" did nothing). Now an
+     approved poster starts a new posting flow: state cleared, then
+     `flow="post_opportunity"`, `step="awaiting_type"`, and the type prompt is sent.
+  2. Admin free-text `approve <poster_id>` sent the poster only a plain-text notice with
+     no tappable entry. Now it sends a real interactive button message
+     (`➕ Post Opportunity`, id `post_opportunities`), matching
+     `4-Message-Flow-Examples.md` §2.
+  3. (Found by inspection on the same path) Returning poster/user menus are real
+     `send_whatsapp_buttons()` calls, but two titles exceeded WhatsApp's 20-char button
+     limit and would raise `ValueError` at runtime: poster `➕ Post an Opportunity` (21)
+     → `➕ Post Opportunity`, and user `📋 Available Applications` (24) → `📋 Available
+     Apps`. All other button titles confirmed ≤ 20 chars.
 
-  Not yet pushed to GitHub, not yet deployed, not yet tested live. `git status` as of 
-  the last check showed several untracked scratch files 
-  (`temp_fixed_func.py`, `temp_head.py`, `temp_tail.py`, `test_poster_flow.py`, 
-  `.bak`/`.backup` files) that should NOT be staged — only `poster_flow.py`, `webhook.py`, 
-  and `3-Full-Product-Logic.md` are the real Phase G deliverable.
+  **State & remaining gate:** Phase G code is complete and pushed to GitHub (`8c12493`
+  + the fixes above). The second full-phase live test is the remaining gate — the first
+  attempt failed at "approved poster taps Post"; the posting entry point and the
+  approval button above are exactly what that test hit. **Do not mark Phase G done and
+  do not proceed to Phase H until that re-test passes.** Message templates (user
+  registration / outcome notifications) were created and submitted for Meta review
+  earlier in this phase; review is pending and does not block the current poster-flow
+  test path. Admin short-ID parsing (e.g. `approve P1042`) stays deferred — the live
+  admin flow uses full poster UUIDs and stateless `approve_post_<uuid>` /
+  `reject_post_<uuid>` post-approval buttons. The untracked scratch files from the
+  earlier session (`IMPLEMENTATION_COMPLETE.md`, `test_poster_flow.py`) are
+  intentionally kept on disk and gitignored so the working tree stays clean.
