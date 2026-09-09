@@ -192,62 +192,78 @@ async def handle_user_interests_step(phone_number: str, payload: Dict[str, Any],
         return
 
     # Parse interests using layered matching
-    parsed_interests = parse_interests(raw_text)
+    try:
+        parsed_interests = parse_interests(raw_text)
 
-    # Create user record
-    def _create_user():
-        result = supabase.from_("users").insert({
-            "phone_number": phone_number,
-            "name": None  # Name collected later if needed
-        }).execute()
-        return result
+        # Create user record
+        def _create_user():
+            result = supabase.from_("users").insert({
+                "phone_number": phone_number,
+                "name": None  # Name collected later if needed
+            }).execute()
+            return result
 
-    async with _db_semaphore:
-        user_result = await anyio.to_thread.run_sync(_create_user)
-    user_id = user_result.data[0]["id"] if user_result.data else None
+        async with _db_semaphore:
+            user_result = await anyio.to_thread.run_sync(_create_user)
+        user_id = user_result.data[0]["id"] if user_result.data else None
 
-    if user_id:
-        # For each parsed interest, create user_tags junction entries
-        for interest in parsed_interests:
-            tag_name = interest["name"]
-            is_custom = interest["is_custom"]
+        if user_id:
+            # For each parsed interest, create user_tags junction entries
+            for interest in parsed_interests:
+                tag_name = interest["name"]
+                is_custom = interest["is_custom"]
 
-            # Find or create tag
-            def _get_or_create_tag():
-                # First try to find existing tag by name (case-insensitive)
-                existing = supabase.from_("tags").select("id").ilike("name", tag_name).limit(1).execute()
-                if existing.data and len(existing.data) > 0:
-                    return existing.data[0]["id"]
+                # Find or create tag
+                def _get_or_create_tag():
+                    # First try to find existing tag by name (case-insensitive)
+                    existing = supabase.from_("tags").select("id").ilike("name", tag_name).limit(1).execute()
+                    if existing.data and len(existing.data) > 0:
+                        return existing.data[0]["id"]
 
-                # If not found and it's a custom tag, create it
-                if is_custom:
-                    new_tag = supabase.from_("tags").insert({
-                        "name": tag_name,
-                        "is_custom": True
-                    }).execute()
-                    return new_tag.data[0]["id"] if new_tag.data else None
+                    # If not found and it's a custom tag, create it
+                    if is_custom:
+                        new_tag = supabase.from_("tags").insert({
+                            "name": tag_name,
+                            "is_custom": True
+                        }).execute()
+                        return new_tag.data[0]["id"] if new_tag.data else None
 
-                # If not found and not custom, return None (shouldn't happen with our parsing)
-                return None
-
-            async with _db_semaphore:
-                tag_id = await anyio.to_thread.run_sync(_get_or_create_tag)
-            if tag_id:
-                # Create user_tag junction
-                def _create_user_tag():
-                    return supabase.from_("user_tags").insert({
-                        "user_id": user_id,
-                        "tag_id": tag_id
-                    }).execute()
+                    # If not found and not custom, return None (shouldn't happen with our parsing)
+                    return None
 
                 async with _db_semaphore:
-                    await anyio.to_thread.run_sync(_create_user_tag)
+                    tag_id = await anyio.to_thread.run_sync(_get_or_create_tag)
+                if tag_id:
+                    # Create user_tag junction
+                    def _create_user_tag():
+                        return supabase.from_("user_tags").insert({
+                            "user_id": user_id,
+                            "tag_id": tag_id
+                        }).execute()
 
-    # Clear conversation state (flow complete)
-    await clear_conversation_state(phone_number)
+                    async with _db_semaphore:
+                        await anyio.to_thread.run_sync(_create_user_tag)
 
-    # Show Main Menu
-    await send_main_menu(phone_number, is_returning_user=True)
+        # Clear conversation state (flow complete)
+        await clear_conversation_state(phone_number)
+
+        # Show Main Menu
+        await send_main_menu(phone_number, is_returning_user=True)
+    except Exception:
+        # Never leave the user silently frozen mid-flow if a step fails unexpectedly
+        # (e.g. a DB error). Reset to a safe state and tell them instead of a bare 500.
+        logger.exception(f"USER_INTERESTS_STEP_FAILED: phone_number={phone_number}")
+        try:
+            await clear_conversation_state(phone_number)
+        except Exception:
+            logger.exception(f"USER_INTERESTS_STEP_CLEAR_STATE_FAILED: phone_number={phone_number}")
+        try:
+            await send_whatsapp_message(
+                phone_number,
+                body="Something went wrong while saving your interests. Please try again."
+            )
+        except Exception:
+            logger.exception(f"USER_INTERESTS_STEP_NOTIFY_FAILED: phone_number={phone_number}")
 
 
 async def handle_interests_edit_start(phone_number: str) -> None:
@@ -293,65 +309,81 @@ async def handle_interests_edit_step(phone_number: str, payload: Dict[str, Any],
         return
 
     # Parse interests using layered matching
-    parsed_interests = parse_interests(raw_text)
+    try:
+        parsed_interests = parse_interests(raw_text)
 
-    # Get existing user
-    def _get_user():
-        result = supabase.from_("users").select("id").eq("phone_number", phone_number).execute()
-        return result.data[0]["id"] if result.data else None
-
-    async with _db_semaphore:
-        user_id = await anyio.to_thread.run_sync(_get_user)
-
-    if user_id:
-        # Delete existing user_tags for user
-        def _delete_user_tags():
-            return supabase.from_("user_tags").delete().eq("user_id", user_id).execute()
+        # Get existing user
+        def _get_user():
+            result = supabase.from_("users").select("id").eq("phone_number", phone_number).execute()
+            return result.data[0]["id"] if result.data else None
 
         async with _db_semaphore:
-            await anyio.to_thread.run_sync(_delete_user_tags)
+            user_id = await anyio.to_thread.run_sync(_get_user)
 
-        # For each parsed interest, create user_tags junction entries
-        for interest in parsed_interests:
-            tag_name = interest["name"]
-            is_custom = interest["is_custom"]
-
-            # Find or create tag
-            def _get_or_create_tag():
-                # First try to find existing tag by name (case-insensitive)
-                existing = supabase.from_("tags").select("id").ilike("name", tag_name).limit(1).execute()
-                if existing.data and len(existing.data) > 0:
-                    return existing.data[0]["id"]
-
-                # If not found and it's a custom tag, create it
-                if is_custom:
-                    new_tag = supabase.from_("tags").insert({
-                        "name": tag_name,
-                        "is_custom": True
-                    }).execute()
-                    return new_tag.data[0]["id"] if new_tag.data else None
-
-                # If not found and not custom, return None (shouldn't happen with our parsing)
-                return None
+        if user_id:
+            # Delete existing user_tags for user
+            def _delete_user_tags():
+                return supabase.from_("user_tags").delete().eq("user_id", user_id).execute()
 
             async with _db_semaphore:
-                tag_id = await anyio.to_thread.run_sync(_get_or_create_tag)
-            if tag_id:
-                # Create user_tag junction
-                def _create_user_tag():
-                    return supabase.from_("user_tags").insert({
-                        "user_id": user_id,
-                        "tag_id": tag_id
-                    }).execute()
+                await anyio.to_thread.run_sync(_delete_user_tags)
+
+            # For each parsed interest, create user_tags junction entries
+            for interest in parsed_interests:
+                tag_name = interest["name"]
+                is_custom = interest["is_custom"]
+
+                # Find or create tag
+                def _get_or_create_tag():
+                    # First try to find existing tag by name (case-insensitive)
+                    existing = supabase.from_("tags").select("id").ilike("name", tag_name).limit(1).execute()
+                    if existing.data and len(existing.data) > 0:
+                        return existing.data[0]["id"]
+
+                    # If not found and it's a custom tag, create it
+                    if is_custom:
+                        new_tag = supabase.from_("tags").insert({
+                            "name": tag_name,
+                            "is_custom": True
+                        }).execute()
+                        return new_tag.data[0]["id"] if new_tag.data else None
+
+                    # If not found and not custom, return None (shouldn't happen with our parsing)
+                    return None
 
                 async with _db_semaphore:
-                    await anyio.to_thread.run_sync(_create_user_tag)
+                    tag_id = await anyio.to_thread.run_sync(_get_or_create_tag)
+                if tag_id:
+                    # Create user_tag junction
+                    def _create_user_tag():
+                        return supabase.from_("user_tags").insert({
+                            "user_id": user_id,
+                            "tag_id": tag_id
+                        }).execute()
 
-    # Clear conversation state (flow complete)
-    await clear_conversation_state(phone_number)
+                    async with _db_semaphore:
+                        await anyio.to_thread.run_sync(_create_user_tag)
 
-    # Show Main Menu
-    await send_main_menu(phone_number, is_returning_user=True)
+        # Clear conversation state (flow complete)
+        await clear_conversation_state(phone_number)
+
+        # Show Main Menu
+        await send_main_menu(phone_number, is_returning_user=True)
+    except Exception:
+        # Never leave the user silently frozen mid-flow if a step fails unexpectedly
+        # (e.g. a DB error). Reset to a safe state and tell them instead of a bare 500.
+        logger.exception(f"USER_INTERESTS_STEP_FAILED: phone_number={phone_number}")
+        try:
+            await clear_conversation_state(phone_number)
+        except Exception:
+            logger.exception(f"USER_INTERESTS_STEP_CLEAR_STATE_FAILED: phone_number={phone_number}")
+        try:
+            await send_whatsapp_message(
+                phone_number,
+                body="Something went wrong while saving your interests. Please try again."
+            )
+        except Exception:
+            logger.exception(f"USER_INTERESTS_STEP_NOTIFY_FAILED: phone_number={phone_number}")
 
 
 def parse_interests(raw_text: str) -> List[Dict[str, Any]]:
@@ -421,7 +453,17 @@ def parse_interests(raw_text: str) -> List[Dict[str, Any]]:
         # 6. Fallback: custom tag
         result.append({"name": term.title(), "is_custom": True})  # Title case for display
 
-    return result
+    # Deduplicate by lowercased name so the same canonical tag is never produced twice.
+    # Several raw terms can match one tag (e.g. "tech events, event"), and linking the
+    # same (user/opportunity, tag) junction twice would violate the composite PK.
+    seen = set()
+    unique_result = []
+    for item in result:
+        key = item["name"].lower().strip()
+        if key not in seen:
+            seen.add(key)
+            unique_result.append(item)
+    return unique_result
 
 
 async def send_main_menu(phone_number: str, is_returning_user: bool = False, is_returning_poster: bool = False) -> None:
