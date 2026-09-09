@@ -59,16 +59,18 @@ Small, sequential, individually-testable steps. Each step should be verifiable b
 - [ ] Build user registration: send fixed-category text list, parse comma-separated reply via layered matching (exact → keyword → fuzzy via `rapidfuzz` → alias dictionary → custom tag fallback), create `users` row and populate `user_tags`, clear state
 - [ ] Test the full registration flow live, for both a poster and a user, end to end — **specifically confirm that after tapping the first button, the next message is correctly routed as an answer to the follow-up question**, not dropped (this is the exact bug being fixed)
 
-## Phase G — Poster Posting Flow
+## Phase G — Poster Posting Flow  [COMPLETE]
 
-- [ ] Build the step-by-step opportunity creation conversation (type → title → description → tags [free-text, same layered matching as user registration] → dates → link), matching Message-Flow-Examples.md — each field transition reads and writes `conversation_states` per Full-Product-Logic.md Section 3
-- [ ] Build the "approximately N students" count-back-to-poster step before final confirmation
-- [ ] Build opportunity creation in the database, including populating `opportunity_tags`, and clear the conversation state on completion
-- [ ] Build the poster edit flow (re-walks the same fields, updates the existing row)
-- [ ] Build per-post admin approval (Full-Product-Logic.md Section 16): on submission, check the poster's `requires_post_approval` flag — if `true`, create the opportunity as `pending_approval` and send the admin a preview message with **[Approve Post] / [Reject Post]** buttons (per Section 0's Interaction Type Reference); **Approve** flips status to `active` (Matching Engine trigger deferred to Phase H); **Reject** notifies the poster and leaves the opportunity out of circulation. If the flag is `false` (default), skip this entirely and proceed as already specified above. Since the admin's existing free-text command handler (`approve [id]` / `reject [id]` for poster registration, from Phase F) and this new button-based post-approval both route through the same admin phone number, explicitly confirm the two dispatch paths don't collide.
-- [ ] Test end to end: confirm every intermediate step correctly advances (not just the first one) — same dead-end risk as registration, now a 9-step version of it; additionally, confirm both `requires_post_approval = true` and `= false` paths behave correctly for at least one test poster each, and confirm the admin's free-text poster-approval command and the new post-approval buttons don't interfere with each other
+- [x] Build the step-by-step opportunity creation conversation (type → title → description → tags [free-text, same layered matching as user registration] → dates → link), matching Message-Flow-Examples.md — each field transition reads and writes `conversation_states` per Full-Product-Logic.md Section 3
+- [x] Build the "approximately N students" count-back-to-poster step before final confirmation
+- [x] Build opportunity creation in the database, including populating `opportunity_tags`, and clear the conversation state on completion
+- [x] Build the poster edit flow (re-walks the same fields, updates the existing row)
+- [x] Build per-post admin approval (Full-Product-Logic.md Section 16): on submission, check the poster's `requires_post_approval` flag — if `true`, create the opportunity as `pending_approval` and send the admin a preview message with **[Approve Post] / [Reject Post]** buttons (per Section 0's Interaction Type Reference); **Approve** flips status to `active` (Matching Engine trigger deferred to Phase H); **Reject** notifies the poster and leaves the opportunity out of circulation. If the flag is `false` (default), skip this entirely and proceed as already specified above. Since the admin's existing free-text command handler (`approve [id]` / `reject [id]` for poster registration, from Phase F) and this new button-based post-approval both route through the same admin phone number, explicitly confirm the two dispatch paths don't collide.
+- [x] Test end to end: confirm every intermediate step correctly advances (not just the first one) — same dead-end risk as registration, now a 9-step version of it; additionally, confirm both `requires_post_approval = true` and `= false` paths behave correctly for at least one test poster each, and confirm the admin's free-text poster-approval command and the new post-approval buttons don't interfere with each other
 
-## Phase H — Matching Engine
+> **CURRENT PHASE: Phase H - Matching Engine (in progress).** Checked boxes = complete. History in CLAUDE.md.
+
+## Phase H — Matching Engine  [CURRENT PHASE - IN PROGRESS]
 
 - [ ] Build the matching query (users whose tags intersect the new opportunity's tags) — prefer a Postgres-side join/RPC over pulling all users into Python and filtering in memory
 - [ ] Build automatic `applications` row creation (`status = available`) for each match

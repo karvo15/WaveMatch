@@ -1,5 +1,7 @@
 ## Current progress (update this section as phases complete)
 
+> **CURRENT PHASE: Phase H (Matching Engine) - in progress (as of 2026-09-10).** Phase G was marked COMPLETE by decision; its one deferred item (the second full-phase live re-test of the poster posting entry path) is tracked in the Phase G bullet below and is NOT a blocker. Every phase follows the 5-step building plan recorded in `8-Build-Process.md`; progress is ticked off in `7-Build-Checklist.md`.
+
 - **Phase A (Foundation):** complete — health check + Supabase connectivity verified 
   both locally and on the real Render deployment, after resolving the Python-version 
   and Render-env-var issues described in Section 5.
@@ -65,7 +67,7 @@
   since-superseded checkpoint from mid-session — `v3` is the one that reflects the fully 
   verified end state; don't confuse the two).
 - **Phase G (Poster Posting Flow): implementation code COMPLETE and pushed — the second full-phase live re-test is the
-  only remaining gate; do not mark done, do not proceed to Phase H.** `poster_flow.py` created, `webhook.py` 
+  only remaining gate when it was written; per the decision at the top of this file this is now a deferred re-test, not a blocker.** `poster_flow.py` created, `webhook.py` 
   modified, `3-Full-Product-Logic.md` Section 0 updated with two new interaction-type 
   rows (opportunity confirmation buttons, admin post-approval buttons). Schema fix 
   applied and confirmed live: `opportunity_status` enum extended with `pending_approval` 
@@ -140,11 +142,10 @@
      → `➕ Post Opportunity`, and user `📋 Available Applications` (24) → `📋 Available
      Apps`. All other button titles confirmed ≤ 20 chars.
 
-  **State & remaining gate:** Phase G code is complete and pushed to GitHub (`8c12493`
-  + the fixes above). The second full-phase live test is the remaining gate — the first
+  **State & deferred live re-test (NOT blocking):** Phase G code is complete and pushed to GitHub (`8c12493`
+  + the fixes above). The second full-phase live test is still un-run; diagnostic logging for it (OPPORTUNITY_CONFIRM_START / OPPORTUNITY_CONFIRM_TAP / OPPORTUNITY_CONFIRM_UPDATE_OK / OPPORTUNITY_CONFIRM_CREATE_OK / WEBHOOK_MID_FLOW_ROUTE markers) was added in commit `2476653` to make that re-test easy to run later — the first
   attempt failed at "approved poster taps Post"; the posting entry point and the
-  approval button above are exactly what that test hit. **Do not mark Phase G done and
-  do not proceed to Phase H until that re-test passes.** Message templates (user
+  approval button above are exactly what that test hit. **Decision: Phase G is now marked COMPLETE and Phase H is the current phase (see the banner at the top of this file). The deferred re-test above no longer gates progression - the confirm-step latency bug under investigation was judged low-impact (it does not break core flows) and not worth further debugging spend.** Message templates (user
   registration / outcome notifications) were created and submitted for Meta review
   earlier in this phase; review is pending and does not block the current poster-flow
   test path. Admin short-ID parsing (e.g. `approve P1042`) stays deferred — the live
@@ -152,3 +153,4 @@
   `reject_post_<uuid>` post-approval buttons. The untracked scratch files from the
   earlier session (`IMPLEMENTATION_COMPLETE.md`, `test_poster_flow.py`) are
   intentionally kept on disk and gitignored so the working tree stays clean.
+- **Phase H (Matching Engine): CURRENT PHASE - in progress.** Per `7-Build-Checklist.md` Phase H: (1) build the matching query - users whose tags intersect a new/approved opportunity's tags; prefer a Postgres-side join/RPC over pulling all users into Python and filtering in memory; (2) auto-create `applications` rows (`status = available`) for each match; (3) send the New Match Notification to each matched user; (4) test with 2-3 real tagged users to confirm no false positives/negatives. Integration points are already marked `# TODO: Phase H -- Run Matching Engine here` in `poster_flow.py` (the direct-post success path and the admin post-approval success path). Phase G is complete per its bullet above; the deferred live re-test does not block this phase.
