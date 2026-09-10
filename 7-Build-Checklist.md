@@ -68,14 +68,16 @@ Small, sequential, individually-testable steps. Each step should be verifiable b
 - [x] Build per-post admin approval (Full-Product-Logic.md Section 16): on submission, check the poster's `requires_post_approval` flag — if `true`, create the opportunity as `pending_approval` and send the admin a preview message with **[Approve Post] / [Reject Post]** buttons (per Section 0's Interaction Type Reference); **Approve** flips status to `active` (Matching Engine trigger deferred to Phase H); **Reject** notifies the poster and leaves the opportunity out of circulation. If the flag is `false` (default), skip this entirely and proceed as already specified above. Since the admin's existing free-text command handler (`approve [id]` / `reject [id]` for poster registration, from Phase F) and this new button-based post-approval both route through the same admin phone number, explicitly confirm the two dispatch paths don't collide.
 - [x] Test end to end: confirm every intermediate step correctly advances (not just the first one) — same dead-end risk as registration, now a 9-step version of it; additionally, confirm both `requires_post_approval = true` and `= false` paths behave correctly for at least one test poster each, and confirm the admin's free-text poster-approval command and the new post-approval buttons don't interfere with each other
 
-> **CURRENT PHASE: Phase H - Matching Engine (in progress).** Checked boxes = complete. History in CLAUDE.md.
+> **CURRENT PHASE: Phase I - Core Button Handlers (in progress).** Checked boxes = complete. History in CLAUDE.md.
 
-## Phase H — Matching Engine  [CURRENT PHASE - IN PROGRESS]
+## Phase H — Matching Engine  [COMPLETE]
 
-- [ ] Build the matching query (users whose tags intersect the new opportunity's tags) — prefer a Postgres-side join/RPC over pulling all users into Python and filtering in memory
-- [ ] Build automatic `applications` row creation (`status = available`) for each match
-- [ ] Trigger the New Match Notification send for each matched user
-- [ ] Test with at least 2-3 real tagged users to confirm matching is accurate (no false positives/negatives)
+- [x] Build the matching query (users whose tags intersect the new opportunity's tags) — prefer a Postgres-side join/RPC over pulling all users into Python and filtering in memory
+- [x] Build automatic `applications` row creation (`status = available`) for each match
+- [x] Trigger the New Match Notification send for each matched user
+- [x] Test with at least 2-3 real tagged users to confirm matching is accurate (no false positives/negatives)
+
+> **Implementation (done):** `matching.py` (`run_matching_engine`), wired at both trigger points in `poster_flow.py` (direct-post success + admin post-approval); tag intersection done Postgres-side (`user_tags` filtered by `tag_id IN (...)`, embedded `users(phone_number)` join), one `applications` row (`status='available'`) per match, New Match Notification composed in `whatsapp.py:send_new_match_notification` (free-form interactive for now - the single swap point to the pre-approved template once Meta review clears). Verified live: 2 of 3 tagged users matched (correct), non-matching tag + untagged + nonexistent-opportunity cases all handled, all temp fixtures removed. Phase I is next.
 
 ## Phase I — Core Button Handlers (Available → Ongoing)
 

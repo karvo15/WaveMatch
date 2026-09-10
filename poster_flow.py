@@ -14,6 +14,7 @@ from conversation import get_conversation_state, set_conversation_state, clear_c
 from database import supabase
 from whatsapp import send_whatsapp_message, send_whatsapp_buttons, send_whatsapp_list_message
 from registration import parse_interests  # reuse layered matching
+from matching import run_matching_engine  # Phase H: Matching Engine
 
 # Load environment variables
 load_dotenv()
@@ -766,8 +767,26 @@ async def _confirm_and_send_opportunity(phone_number: str, conversation_state: D
                     ]
                 )
         else:
-            await send_whatsapp_message(phone_number, body="Sent! \U0001f389")
-            # TODO: Phase H -- Run Matching Engine here
+            # Phase H (Matching Engine): the post is now live, so run the matching
+            # engine and report the match count back to the poster (count only --
+            # never a list of names; 3-Full-Product-Logic.md Section 4).
+            try:
+                match_count = await run_matching_engine(new_opp_id)
+                if match_count:
+                    await send_whatsapp_message(
+                        phone_number,
+                        body=f"Sent! \U0001f389 Your opportunity was sent to {match_count} matching student(s)."
+                    )
+                else:
+                    await send_whatsapp_message(
+                        phone_number,
+                        body="Sent! \U0001f389 Your post is live. No students match those tags yet."
+                    )
+            except Exception:
+                # Matching must never undo a successful post or leave the poster
+                # without a reply.
+                logger.exception(f"MATCHING_ENGINE_FAILED (direct post): opportunity_id={new_opp_id}")
+                await send_whatsapp_message(phone_number, body="Sent! \U0001f389")
 
 # ============================================================
 # MY POSTS BUTTON -- List poster's opportunities for editing
@@ -958,11 +977,24 @@ async def handle_admin_post_approval_button(button_id: str) -> Dict[str, Any]:
 
     if poster_phone:
         if action == "approve":
-            await send_whatsapp_message(
-                poster_phone,
-                body="\u2705 Your post has been approved and is now live! Matched students will be notified."
-            )
-            # TODO: Phase H -- Run Matching Engine here
+            # Phase H (Matching Engine): the post just became active, so run the
+            # matching engine and report the match count to the poster (count only
+            # -- never a list of names; 3-Full-Product-Logic.md Section 4).
+            try:
+                match_count = await run_matching_engine(opportunity_id)
+            except Exception:
+                logger.exception(f"MATCHING_ENGINE_FAILED (admin approve): opportunity_id={opportunity_id}")
+                match_count = 0
+            if match_count:
+                await send_whatsapp_message(
+                    poster_phone,
+                    body=f"\u2705 Your post has been approved and is now live! It was sent to {match_count} matching student(s)."
+                )
+            else:
+                await send_whatsapp_message(
+                    poster_phone,
+                    body="\u2705 Your post has been approved and is now live! No students match those tags yet."
+                )
         else:
             await send_whatsapp_message(
                 poster_phone,

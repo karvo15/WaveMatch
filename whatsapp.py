@@ -266,3 +266,60 @@ async def send_whatsapp_list_message(to: str, body: str, sections: List[Dict[str
                 # If we can't parse JSON, raise original error
                 raise
         return response.json()
+
+
+async def send_new_match_notification(
+    to: str,
+    title: str,
+    poster_name: str,
+    description: str,
+    application_id: str,
+    application_start_date: Optional[str] = None,
+    application_deadline: Optional[str] = None,
+) -> Dict[str, Any]:
+    """
+    Send the "New Match Notification" to a matched user.
+
+    Spec: 3-Full-Product-Logic.md Section 5 and 4-Message-Flow-Examples.md
+    Section 5. Body layout:
+        <title>
+        Posted by <poster name>
+        <description>
+        Applications open: <application_start_date>
+        Deadline: <application_deadline>
+    with three buttons: Apply Now / Remind Me Later / Ignore.
+
+    This is the single named place where this proactive message is composed.
+    Per Platform-Constraints.md Section 1, proactive messages sent outside the
+    24-hour window must use a pre-approved Message Template - once the template
+    clears Meta review, swap the free-form interactive send below for the
+    template send here, and no other code needs to change.
+
+    Button ids are stateless (they carry the applications row id) so the Phase I
+    handlers can act without relying on conversation_states.
+    """
+    lines = [f"\U0001f393 {title}", f"Posted by {poster_name}"]
+    if description:
+        lines.append(description)
+    if application_start_date:
+        lines.append(f"\U0001f4c6 Applications open: {application_start_date}")
+    if application_deadline:
+        lines.append(f"\U0001f4c5 Deadline: {application_deadline}")
+    body = "\n".join(lines)
+
+    buttons = [
+        {
+            "type": "reply",
+            "reply": {"id": f"apply_now_{application_id}", "title": "\u2705 Apply Now"},
+        },
+        {
+            "type": "reply",
+            "reply": {"id": f"remind_later_{application_id}", "title": "\u23f0 Remind Me Later"},
+        },
+        {
+            "type": "reply",
+            "reply": {"id": f"ignore_{application_id}", "title": "\U0001f6ab Ignore"},
+        },
+    ]
+
+    return await send_whatsapp_buttons(to, body=body, buttons=buttons)
