@@ -98,7 +98,7 @@ Small, sequential, individually-testable steps. Each step should be verifiable b
 
 > **Implementation (done):** `whatsapp.py:send_ongoing_checkin_notification` (the 3-button check-in; button titles abbreviated to fit the 20-char cap) + `application_flow.py` ongoing handlers `_handle_continue_application` / `_handle_finished_application` / `_handle_remind_later_ongoing` added to `_DISPATCH`; the free-text `"never"` keyword (honoured only from `ongoing`) routes into the existing reusable Section 13 confirmation. Verified live against Supabase (temp fixtures, sends stubbed): 29/29 checks passed, 0 fixtures left. Phase K is next.
 
-## Phase K — Under Review → Outcome
+## Phase K — Under Review → Outcome  [COMPLETE]
 
 - [x] Build the Yes/No/Waiting outcome check message
 - [x] Handle **No**: confirmation first, then delete the row
@@ -106,14 +106,14 @@ Small, sequential, individually-testable steps. Each step should be verifiable b
 - [x] Handle **Yes** with known `event_start_date`: auto-move to `scheduled`
 - [x] Handle **Yes** with unknown `event_start_date`: prompt user for the date (free text/calendar picker), then move to `scheduled`
 
-## Phase L — Daily Scheduler
+## Phase L — Daily Scheduler  [COMPLETE]
 
-- [ ] Register an APScheduler daily job on FastAPI startup (see Architecture-Doc.md Section 3C for the APScheduler-vs-Render-Cron tradeoff already decided)
-- [ ] Implement the Deadline Heads-Up pass (2 days before, one-time per application)
-- [ ] Implement the Expiry/Auto-Cleanup pass (delete unfinished applications past their deadline)
-- [ ] Implement the Reminder Batching pass (max 2/day per user, sorted by nearest deadline, re-sorted fresh each day)
-- [ ] Implement the Result-Check pass (fires outcome checks per Phase K logic)
-- [ ] Test the scheduler manually (call the job function directly, on-demand, from a temporary route or script) before relying on actual APScheduler timing
+- [x] Register an APScheduler daily job on FastAPI startup (see Architecture-Doc.md Section 3C for the APScheduler-vs-Render-Cron tradeoff already decided)
+- [x] Implement the Deadline Heads-Up pass (2 days before, one-time per application)
+- [x] Implement the Expiry/Auto-Cleanup pass (delete unfinished applications past their deadline)
+- [x] Implement the Reminder Batching pass (max 2/day per user, sorted by nearest deadline, re-sorted fresh each day)
+- [x] Implement the Result-Check pass (fires outcome checks per Phase K logic)
+- [x] Test the scheduler manually (call the job function directly, on-demand, from a temporary route or script) before relying on actual APScheduler timing
 
 ## Phase M — Edit Propagation & Manual Tracking
 
