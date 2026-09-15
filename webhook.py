@@ -15,6 +15,7 @@ from dotenv import load_dotenv
 from conversation import get_conversation_state, set_conversation_state, clear_conversation_state, user_exists, poster_exists
 import registration  # Import the registration module
 import poster_flow  # Import the poster flow module
+import application_flow  # Phase I: user-side application button handlers
 from whatsapp import send_whatsapp_message, send_whatsapp_buttons
 from database import supabase
 import anyio
@@ -333,6 +334,14 @@ async def receive_webhook(request: Request) -> Dict[str, str]:
             # Delegate to poster_flow handler
             result = await poster_flow.handle_admin_post_approval_button(button_id)
             return result
+        # Phase I: Available-application buttons (Apply Now / Remind Me Later / Ignore)
+        elif button_id.startswith(application_flow.APPLICATION_BUTTON_PREFIXES):
+            await application_flow.handle_application_button(phone_number, button_id)
+            return {"status": "ok"}
+        # Phase I: reusable deletion confirmation (Section 13) - Confirm / Cancel
+        elif button_id.startswith(application_flow.DELETION_BUTTON_PREFIXES):
+            await application_flow.handle_deletion_confirmation(phone_number, button_id)
+            return {"status": "ok"}
         # Handle list replies (e.g., from "My Posts" list)
         elif list_id.startswith("select_post_"):
             # Extract opportunity ID and set up edit flow
@@ -414,6 +423,8 @@ async def receive_webhook(request: Request) -> Dict[str, str]:
                 await poster_flow.handle_opportunity_confirmation_step(phone_number, payload, conversation_state)
             else:
                 logger.warning(f"UNEXPECTED POSTER FLOW STEP: flow={flow}, step={step}")
+        elif flow == "remind_later" and step == "awaiting_time":
+            await application_flow.handle_remind_later_time_step(phone_number, payload, conversation_state)
         else:
             # Log unexpected flow/step combination for debugging
             logger.warning(f"UNEXPECTED FLOW/STEP: flow={flow}, step={step}")
