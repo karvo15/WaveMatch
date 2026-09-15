@@ -119,13 +119,13 @@ Small, sequential, individually-testable steps. Each step should be verifiable b
 
 - [x] Build poster edit → affected-user notification logic (mandatory, explicit deadline-change wording per Full-Product-Logic.md Section 3.1)
 - [x] Build automatic date sync on linked `applications` when a poster edits dates, including resetting `deadline_heads_up_sent` if the deadline changed
-- [ ] Build the user-facing "Add manually" flow (Section 9.1) — phase-specific entry point (opened from within Ongoing/Under Review/Scheduled), tracked via `conversation_states` like any other multi-step flow
-- [ ] Build the user-facing "Edit an item" flow (Section 9.2)
+- [x] Build the user-facing "Add manually" flow (Section 9.1) — phase-specific entry point (opened from within Ongoing/Under Review/Scheduled), tracked via `conversation_states` like any other multi-step flow
+- [x] Build the user-facing "Edit an item" flow (Section 9.2)
 
 ## Phase N — List Views & Tag Dedup
 
 - [x] Build the Available Applications list view — **paginate if it could exceed 10 items** (9 items + "More →" row); keep item titles under 24 characters
-- [ ] Build the My Applications sub-menu (Under Review / Ongoing / Scheduled) as list views — same 10-row/24-char constraints apply
+- [x] Build the My Applications sub-menu (Under Review / Ongoing / Scheduled) as list views — same 10-row/24-char constraints apply
 - [ ] Build the fuzzy-match + alias-dictionary matching function using `rapidfuzz` (shared by both user interest parsing and poster tag parsing — build once, call from both)
 - [ ] Build the nightly tag-dedup job (can reuse the same APScheduler instance from Phase L, registered as a second job)
 
