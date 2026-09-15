@@ -404,3 +404,22 @@ async def send_outcome_check_notification(
 
     return await send_whatsapp_buttons(to, body=body, buttons=buttons)
 
+async def send_deadline_heads_up_notification(
+    to: str,
+    title: str,
+    deadline: str,
+) -> Dict[str, Any]:
+    """
+    Send the one-time "Deadline heads-up" two days before an application deadline
+    (3-Full-Product-Logic.md Section 7.1; 4-Message-Flow-Examples.md Section 7). Body:
+        Reminder: <title> deadline is in 2 days (<deadline>).
+
+    Plain text with no buttons -- nothing is asked of the user, the message just warns
+    them before it's too late. `deadline` arrives already formatted for display.
+
+    Same single-swap-point rule as the other proactive messages: composed here so the
+    pre-approved template can replace it once Meta review clears
+    (Platform-Constraints.md Section 1). Fired by the Phase L scheduler.
+    """
+    body = f"\u23f3 Reminder: {title} deadline is in 2 days ({deadline})."
+    return await send_whatsapp_message(to, body=body)
