@@ -216,6 +216,40 @@ def _parse_absolute_date(text: str, now: datetime) -> Optional[date]:
     return None
 
 
+def _parse_strict_time(raw_text: str, now: Optional[datetime] = None) -> Optional[datetime]:
+    """
+    Strict Section 14.2 parse of a free-text date/time -> UTC datetime, or None.
+
+    Shared by the reminder-time step (which falls back to +2 days when this is None,
+    per Section 5.2) and the event-date step (which re-prompts instead of guessing).
+    Accepts the relative forms and the absolute forms; date-only inputs land at
+    09:00 UTC. "default" is a reminder-only keyword, so it counts as no date here.
+    """
+    now = now or datetime.now(timezone.utc)
+    text = _normalise_time_text(raw_text)
+
+    if not text or text == "default":
+        return None
+
+    match = _RELATIVE_RE.match(text)
+    if match:
+        amount = int(match.group(1))
+        unit = match.group(2)
+        if amount <= 0:
+            return None
+        if unit.startswith("day"):
+            return now + timedelta(days=amount)
+        if unit.startswith("hr") or unit.startswith("hour"):
+            return now + timedelta(hours=amount)
+        return now + timedelta(minutes=amount)
+
+    absolute = _parse_absolute_date(text, now)
+    if absolute:
+        return datetime(absolute.year, absolute.month, absolute.day, 9, 0, tzinfo=timezone.utc)
+
+    return None
+
+
 def _parse_reminder_time(raw_text: str, now: Optional[datetime] = None) -> Tuple[datetime, str]:
     """
     Turn a free-text reminder time into (when_utc, human_phrase).
@@ -223,33 +257,22 @@ def _parse_reminder_time(raw_text: str, now: Optional[datetime] = None) -> Tuple
     Relative ("in 3 days", "in 5 hours"), absolute ("Sept 18", "20/09",
     "20/09/2026"), and the literal "default" are accepted (Section 14.2). Anything
     else -- including an empty reply -- falls back to the default +2 days, exactly
-    as Section 5.2 specifies. Date-only inputs are scheduled for 09:00 UTC.
+    as Section 5.2 specifies.
     """
     now = now or datetime.now(timezone.utc)
-    default_when = now + timedelta(days=REMINDER_DEFAULT_DAYS)
-    text = _normalise_time_text(raw_text)
+    when = _parse_strict_time(raw_text, now)
+    if when is None:
+        return now + timedelta(days=REMINDER_DEFAULT_DAYS), f"in {REMINDER_DEFAULT_DAYS} days"
 
-    if not text or text == "default":
-        return default_when, f"in {REMINDER_DEFAULT_DAYS} days"
-
-    match = _RELATIVE_RE.match(text)
+    match = _RELATIVE_RE.match(_normalise_time_text(raw_text))
     if match:
-        amount = int(match.group(1))
-        unit = match.group(2)
-        if amount <= 0:
-            return default_when, f"in {REMINDER_DEFAULT_DAYS} days"
+        amount, unit = int(match.group(1)), match.group(2)
         if unit.startswith("day"):
-            return now + timedelta(days=amount), f"in {amount} day(s)"
+            return when, f"in {amount} day(s)"
         if unit.startswith("hr") or unit.startswith("hour"):
-            return now + timedelta(hours=amount), f"in {amount} hour(s)"
-        return now + timedelta(minutes=amount), f"in {amount} minute(s)"
-
-    absolute = _parse_absolute_date(text, now)
-    if absolute:
-        when = datetime(absolute.year, absolute.month, absolute.day, 9, 0, tzinfo=timezone.utc)
-        return when, f"on {absolute.strftime('%b %d, %Y')}"
-
-    return default_when, f"in {REMINDER_DEFAULT_DAYS} days"
+            return when, f"in {amount} hour(s)"
+        return when, f"in {amount} minute(s)"
+    return when, f"on {when.strftime('%b %d, %Y')}"
 
 
 # ============================================================
@@ -615,18 +638,19 @@ async def handle_outcome_event_date_step(
         return
 
     text = _extract_message_text(payload)
-    parsed = _parse_absolute_date(_normalise_time_text(text), datetime.now(timezone.utc)) if text else None
-    if not parsed:
+    when = _parse_strict_time(text) if text else None
+    if when is None:
         await send_whatsapp_message(phone_number, body=EVENT_DATE_REPROMPT)
         logger.info(f"OUTCOME_EVENT_DATE_UNPARSED: phone_number={phone_number} text={text!r}")
         return
+    event_date = when.date()
 
     await _update_application(
         application_id,
         {
             "status": "scheduled",
             "outcome": "yes",
-            "scheduled_event_date": parsed.isoformat(),
+            "scheduled_event_date": event_date.isoformat(),
             "next_reminder_at": None,
         },
     )
@@ -634,11 +658,11 @@ async def handle_outcome_event_date_step(
     await send_whatsapp_message(
         phone_number,
         body=(
-            f"Got it \u2014 {parsed.strftime('%b')} {parsed.day}, {parsed.year}. Added to your Scheduled list. "
+            f"Got it \u2014 {event_date.strftime('%b')} {event_date.day}, {event_date.year}. Added to your Scheduled list. "
             "I'll remind you as it approaches."
         ),
     )
     logger.info(
         f"OUTCOME_EVENT_DATE_SET: phone_number={phone_number} application_id={application_id} "
-        f"scheduled_event_date={parsed.isoformat()}"
+        f"scheduled_event_date={event_date.isoformat()}"
     )
