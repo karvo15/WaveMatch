@@ -15,9 +15,15 @@ Phase J adds the "Ongoing" stage, driven by the recurring check-in message
   Finished Application -> status -> 'under_review'; next reminder from result_date rules
   Remind Me Later      -> ask for a custom time, or the free-text "never" (confirmation first)
 
+Phase K adds the "Under Review -> Outcome" stage, driven by the outcome check
+message (3-Full-Product-Logic.md Section 8; 4-Message-Flow-Examples.md Section 8):
+  Yes     -> status -> 'scheduled' (event_start_date from the opportunity, else ask the user)
+  No      -> deletion confirmation first (Section 13), then delete the row
+  Waiting -> next_reminder_at = +3 days; the same check fires again then
+
 Also provides:
   * the reusable deletion-confirmation step (Section 13) -- built once, called from
-    every deletion trigger (Ignore now; Never / No / Delete in later phases);
+    every deletion trigger (Ignore, Never and No now; Delete in Phase N);
   * the (status, action) -> handler dispatch table from 2-Architecture-Doc.md
     Section 3B, implemented as a dict rather than an if/elif chain.
 
@@ -71,6 +77,19 @@ ONGOING_REMINDER_PROMPT = (
     '"Sept 18"), or reply "never" to stop reminders for this one.'
 )
 
+# Section 8.2: "Waiting" pushes the next outcome check out by 3 days.
+OUTCOME_WAITING_DAYS = 3
+
+# Section 14.2: the event start date after a successful application is free text.
+EVENT_DATE_PROMPT = (
+    'Congratulations! \U0001f389 When does it start? Reply with a date '
+    '(e.g. "Oct 5", "05/10/2026").'
+)
+EVENT_DATE_REPROMPT = (
+    "I couldn't read that date. Reply with something like \"Oct 5\" or \"05/10/2026\" "
+    '(or reply "cancel" to stop).'
+)
+
 
 # Button-id prefixes this module owns. The ids are stateless (they carry the
 # `applications` row id), so handlers never need conversation_states to know which
@@ -81,6 +100,9 @@ APPLICATION_BUTTON_PREFIXES = (
     "ignore_",
     "continue_application_",
     "finished_application_",
+    "outcome_yes_",
+    "outcome_no_",
+    "outcome_waiting_",
 )
 DELETION_BUTTON_PREFIXES = ("confirm_delete_", "cancel_delete_")
 
@@ -96,7 +118,7 @@ async def _get_application(application_id: str) -> Optional[Dict[str, Any]]:
             supabase.from_("applications")
             .select(
                 "id, user_id, status, opportunity_id, custom_title, custom_result_date, "
-                "opportunities(title, link, application_deadline, result_date)"
+                "opportunities(title, link, application_deadline, result_date, event_start_date)"
             )
             .eq("id", application_id)
             .limit(1)
@@ -234,18 +256,33 @@ def _parse_reminder_time(raw_text: str, now: Optional[datetime] = None) -> Tuple
 # REUSABLE DELETION CONFIRMATION (Section 13)
 # ============================================================
 
-async def send_deletion_confirmation(phone_number: str, application_id: str, item_title: str) -> None:
+# Per-trigger success acknowledgements for the one reusable confirmation (Section 13).
+# The warning text is shared; only the "done" line differs by why the row is going
+# (4-Message-Flow-Examples.md Sections 5c / 6a / 8c).
+DELETION_ACKS = {
+    "ignore": "No problem \u2014 I won't show you this one again.",
+    "never": "Understood \u2014 I've removed this from your reminders.",
+    "outcome_no": "Sorry to hear that. Removed from your list \u2014 keep going, more opportunities are coming. \U0001f4aa",
+    "delete": "Removed from your list.",
+}
+DEFAULT_DELETION_REASON = "ignore"
+
+
+async def send_deletion_confirmation(
+    phone_number: str, application_id: str, item_title: str, reason: str = DEFAULT_DELETION_REASON
+) -> None:
     """
     The single reusable "are you sure?" step (Section 13). Every deletion trigger
-    (Ignore now; Never / No / Delete later) calls this rather than rolling its own.
-    Stateless: the row id is carried in the button ids.
+    (Ignore / Never / No now; Delete in Phase N) calls this rather than rolling its
+    own. Stateless: the row id and the trigger (so Confirm can send the right
+    follow-up line) both ride in the button ids.
     """
     await send_whatsapp_buttons(
         phone_number,
         body=f"Are you sure? This will remove {item_title} from your list and can't be undone.",
         buttons=[
-            {"type": "reply", "reply": {"id": f"confirm_delete_{application_id}", "title": "\u2705 Confirm"}},
-            {"type": "reply", "reply": {"id": f"cancel_delete_{application_id}", "title": "\u21a9\ufe0f Cancel"}},
+            {"type": "reply", "reply": {"id": f"confirm_delete_{reason}_{application_id}", "title": "\u2705 Confirm"}},
+            {"type": "reply", "reply": {"id": f"cancel_delete_{reason}_{application_id}", "title": "\u21a9\ufe0f Cancel"}},
         ],
     )
 
@@ -343,12 +380,77 @@ async def _handle_remind_later_ongoing(phone_number: str, application_id: str, a
 
 
 # ============================================================
+# OUTCOME HANDLERS (Phase K -- under_review -> outcome, Section 8)
+# ============================================================
+
+async def _handle_outcome_yes(phone_number: str, application_id: str, application: Dict[str, Any]) -> None:
+    """under_review + Yes -> scheduled (Section 8.3).
+
+    If the linked opportunity already knows its event start date we use it and move
+    straight to `scheduled`; otherwise we ask the user for the date (free text).
+    """
+    opportunity = application.get("opportunities") or {}
+    event_start_date = opportunity.get("event_start_date")
+
+    if event_start_date:
+        await _update_application(
+            application_id,
+            {
+                "status": "scheduled",
+                "outcome": "yes",
+                "scheduled_event_date": str(event_start_date),
+                "next_reminder_at": None,  # nothing left to remind about
+            },
+        )
+        await send_whatsapp_message(
+            phone_number,
+            body="Congratulations! \U0001f389 I've added the program start date to your Scheduled list.",
+        )
+        logger.info(
+            f"OUTCOME_YES_SCHEDULED: phone_number={phone_number} "
+            f"application_id={application_id} event_start_date={event_start_date}"
+        )
+        return
+
+    await set_conversation_state(
+        phone_number=phone_number,
+        flow="outcome_event_date",
+        step="awaiting_event_date",
+        data={"application_id": application_id},
+    )
+    await send_whatsapp_message(phone_number, body=EVENT_DATE_PROMPT)
+    logger.info(f"OUTCOME_YES_NEEDS_DATE: phone_number={phone_number} application_id={application_id}")
+
+
+async def _handle_outcome_no(phone_number: str, application_id: str, application: Dict[str, Any]) -> None:
+    """under_review + No -> the reusable deletion confirmation first (Sections 8.1 / 13)."""
+    await send_deletion_confirmation(
+        phone_number, application_id, _application_title(application), reason="outcome_no"
+    )
+    logger.info(f"OUTCOME_NO_CONFIRM_PROMPT: phone_number={phone_number} application_id={application_id}")
+
+
+async def _handle_outcome_waiting(phone_number: str, application_id: str, application: Dict[str, Any]) -> None:
+    """under_review + Waiting -> re-ask in 3 days (Section 8.2)."""
+    when = datetime.now(timezone.utc) + timedelta(days=OUTCOME_WAITING_DAYS)
+    await _update_application(
+        application_id,
+        {"outcome": "waiting", "next_reminder_at": when.isoformat()},
+    )
+    await send_whatsapp_message(phone_number, body="No worries, I'll check back in 3 days.")
+    logger.info(
+        f"OUTCOME_WAITING_SET: phone_number={phone_number} application_id={application_id} "
+        f"next_reminder_at={when.isoformat()}"
+    )
+
+
+# ============================================================
 # DISPATCH TABLE (2-Architecture-Doc.md Section 3B -- dict, not if/elif)
 # ============================================================
 
-# Only the `available` rows exist in Phase I; later phases add their own
-# (status, action) entries here -- the single place that stays readable as more
-# button types arrive.
+# Each phase adds its own (status, action) entries here -- the single place that
+# stays readable as more button types arrive (available/ongoing in Phases I/J,
+# under_review in Phase K; scheduled's edit/delete arrive with My Applications).
 _DISPATCH = {
     ("available", "apply_now"): _handle_apply_now,
     ("available", "remind_later"): _handle_remind_later,
@@ -356,12 +458,18 @@ _DISPATCH = {
     ("ongoing", "remind_later"): _handle_remind_later_ongoing,
     ("ongoing", "continue_application"): _handle_continue_application,
     ("ongoing", "finished_application"): _handle_finished_application,
+    ("under_review", "outcome_yes"): _handle_outcome_yes,
+    ("under_review", "outcome_no"): _handle_outcome_no,
+    ("under_review", "outcome_waiting"): _handle_outcome_waiting,
 }
 
 
 def _split_application_button(button_id: str) -> Tuple[Optional[str], Optional[str]]:
     """Split a stateless button id into (action, application_id)."""
-    for action in ("apply_now", "remind_later", "ignore", "continue_application", "finished_application"):
+    for action in (
+        "apply_now", "remind_later", "ignore", "continue_application", "finished_application",
+        "outcome_yes", "outcome_no", "outcome_waiting",
+    ):
         prefix = action + "_"
         if button_id.startswith(prefix):
             return action, button_id[len(prefix):]
@@ -404,15 +512,31 @@ async def handle_application_button(phone_number: str, button_id: str) -> None:
     await handler(phone_number, application_id, application)
 
 
-async def handle_deletion_confirmation(phone_number: str, button_id: str) -> None:
-    """Handle Confirm / Cancel on the reusable deletion confirmation (Section 13)."""
-    # "confirm_delete_<uuid>" -> ["confirm", "delete", "<uuid>"]
+def _parse_deletion_button(button_id: str) -> Tuple[Optional[str], Optional[str], str]:
+    """Split a stateless deletion-confirmation id into (action, application_id, reason).
+
+    Accepts the Phase-K form "confirm_delete_<reason>_<uuid>" and the older
+    "confirm_delete_<uuid>" (any message still in flight from before), which falls
+    back to the generic trigger. UUIDs contain no underscores, so the reason is
+    everything before the final "_".
+    """
     parts = button_id.split("_", 2)
     if len(parts) != 3:
+        return None, None, DEFAULT_DELETION_REASON
+    action, rest = parts[0], parts[2]
+    if "_" in rest:
+        reason, application_id = rest.rsplit("_", 1)
+    else:
+        reason, application_id = DEFAULT_DELETION_REASON, rest
+    return action, application_id, reason
+
+
+async def handle_deletion_confirmation(phone_number: str, button_id: str) -> None:
+    """Handle Confirm / Cancel on the reusable deletion confirmation (Section 13)."""
+    action, application_id, reason = _parse_deletion_button(button_id)
+    if not action or not application_id:
         logger.warning(f"DELETION_CONFIRMATION_UNPARSEABLE: phone_number={phone_number} button_id={button_id!r}")
         return
-
-    action, application_id = parts[0], parts[2]
 
     if action == "confirm":
         application = await _get_application(application_id)
@@ -420,8 +544,13 @@ async def handle_deletion_confirmation(phone_number: str, button_id: str) -> Non
             await send_whatsapp_message(phone_number, body="That item is already gone.")
             return
         await _delete_application(application_id)
-        logger.info(f"DELETION_CONFIRMED: phone_number={phone_number} application_id={application_id}")
-        await send_whatsapp_message(phone_number, body="No problem \u2014 I won't show you this one again.")
+        logger.info(
+            f"DELETION_CONFIRMED: phone_number={phone_number} "
+            f"application_id={application_id} reason={reason}"
+        )
+        await send_whatsapp_message(
+            phone_number, body=DELETION_ACKS.get(reason, DELETION_ACKS[DEFAULT_DELETION_REASON])
+        )
     else:
         # Cancel -> nothing changes (Section 13, step 4).
         await send_whatsapp_message(phone_number, body="Okay, I've kept it in your list.")
@@ -450,7 +579,9 @@ async def handle_remind_later_time_step(
     # reusable deletion confirmation as every other delete trigger (Section 13).
     if status == "ongoing" and _normalise_time_text(text) == "never":
         await clear_conversation_state(phone_number)
-        await send_deletion_confirmation(phone_number, application_id, _application_title(application))
+        await send_deletion_confirmation(
+            phone_number, application_id, _application_title(application), reason="never"
+        )
         logger.info(f"NEVER_CONFIRM_PROMPT: phone_number={phone_number} application_id={application_id}")
         return
 
@@ -462,3 +593,52 @@ async def handle_remind_later_time_step(
         f"next_reminder_at={when.isoformat()}"
     )
     await send_whatsapp_message(phone_number, body=f"Got it \u2014 I'll remind you {human}.")
+
+
+async def handle_outcome_event_date_step(
+    phone_number: str, payload: Dict[str, Any], conversation_state: Dict[str, Any]
+) -> None:
+    """Free-text event start date after the user is accepted (Sections 8.3 / 14.2).
+
+    Parsed with the same Section 14.2 formats as reminder times, and confirmed back
+    so a misparse is visible before it's saved. A date we can't read re-prompts
+    (keeping the state) rather than guessing or silently dropping the flow.
+    """
+    application_id = (conversation_state.get("collected_data") or {}).get("application_id")
+    application = await _get_application(application_id) if application_id else None
+    if not application or application.get("status") != "under_review":
+        await clear_conversation_state(phone_number)
+        await send_whatsapp_message(
+            phone_number,
+            body="That application isn't waiting on a result anymore, so there's nothing to schedule.",
+        )
+        return
+
+    text = _extract_message_text(payload)
+    parsed = _parse_absolute_date(_normalise_time_text(text), datetime.now(timezone.utc)) if text else None
+    if not parsed:
+        await send_whatsapp_message(phone_number, body=EVENT_DATE_REPROMPT)
+        logger.info(f"OUTCOME_EVENT_DATE_UNPARSED: phone_number={phone_number} text={text!r}")
+        return
+
+    await _update_application(
+        application_id,
+        {
+            "status": "scheduled",
+            "outcome": "yes",
+            "scheduled_event_date": parsed.isoformat(),
+            "next_reminder_at": None,
+        },
+    )
+    await clear_conversation_state(phone_number)
+    await send_whatsapp_message(
+        phone_number,
+        body=(
+            f"Got it \u2014 {parsed.strftime('%b')} {parsed.day}, {parsed.year}. Added to your Scheduled list. "
+            "I'll remind you as it approaches."
+        ),
+    )
+    logger.info(
+        f"OUTCOME_EVENT_DATE_SET: phone_number={phone_number} application_id={application_id} "
+        f"scheduled_event_date={parsed.isoformat()}"
+    )

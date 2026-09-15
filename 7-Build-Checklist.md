@@ -100,11 +100,11 @@ Small, sequential, individually-testable steps. Each step should be verifiable b
 
 ## Phase K — Under Review → Outcome
 
-- [ ] Build the Yes/No/Waiting outcome check message
-- [ ] Handle **No**: confirmation first, then delete the row
-- [ ] Handle **Waiting**: set `next_reminder_at = +3 days`
-- [ ] Handle **Yes** with known `event_start_date`: auto-move to `scheduled`
-- [ ] Handle **Yes** with unknown `event_start_date`: prompt user for the date (free text/calendar picker), then move to `scheduled`
+- [x] Build the Yes/No/Waiting outcome check message
+- [x] Handle **No**: confirmation first, then delete the row
+- [x] Handle **Waiting**: set `next_reminder_at = +3 days`
+- [x] Handle **Yes** with known `event_start_date`: auto-move to `scheduled`
+- [x] Handle **Yes** with unknown `event_start_date`: prompt user for the date (free text/calendar picker), then move to `scheduled`
 
 ## Phase L — Daily Scheduler
 
