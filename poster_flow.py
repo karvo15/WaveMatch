@@ -12,7 +12,7 @@ from dotenv import load_dotenv
 
 from conversation import get_conversation_state, set_conversation_state, clear_conversation_state, _db_semaphore
 from database import supabase
-from whatsapp import send_whatsapp_message, send_whatsapp_buttons, send_whatsapp_list_message
+from whatsapp import send_whatsapp_message, send_whatsapp_buttons, send_whatsapp_list_message, send_new_match_notification
 from registration import parse_interests  # reuse layered matching
 from matching import run_matching_engine  # Phase H: Matching Engine
 
@@ -871,6 +871,121 @@ async def _handle_my_applications_button(phone_number: str) -> None:
         phone_number,
         body="\U0001f4c1 My Applications feature is coming soon! You'll be able to view your Ongoing, Under Review, and Scheduled applications here."
     )
+
+
+# ============================================================
+# AVAILABLE APPS BUTTON -- the user's matched opportunities
+# (Phase N bullet 1: the Available Applications list view)
+# ============================================================
+
+AVAILABLE_PAGE_SIZE = 10  # WhatsApp list cap: 10 rows total (Section 10.1)
+
+
+async def _handle_available_applications_button(phone_number: str, offset: int = 0) -> None:
+    """Show the user's Available Applications (status='available') as a paginated list.
+
+    Those rows are created by the Matching Engine (Phase H), so this is exactly "the
+    opportunities matching their selected tags". Titles/descriptions respect the
+    24/72-char caps and the list is paginated per Section 10.1.
+    """
+    def _get_user_apps():
+        user = supabase.from_("users").select("id").eq("phone_number", phone_number).limit(1).execute()
+        if not user.data:
+            return None
+        user_id = user.data[0]["id"]
+        apps = (supabase.from_("applications")
+                .select("id, custom_title, opportunities(title, type, application_deadline)")
+                .eq("user_id", user_id)
+                .eq("status", "available")
+                .order("created_at", desc=False)
+                .execute())
+        return apps.data or []
+
+    async with _db_semaphore:
+        apps = await anyio.to_thread.run_sync(_get_user_apps)
+
+    if apps is None:
+        await send_whatsapp_message(phone_number, body="You don't have any opportunities to view yet.")
+        return
+    if not apps:
+        await send_whatsapp_message(
+            phone_number,
+            body="No available opportunities right now. We'll message you as soon as something matches your interests."
+        )
+        return
+
+    # Paginate: 10 rows max; when there are more, show 9 + a "More" row (Section 10.1)
+    has_more = len(apps) > offset + AVAILABLE_PAGE_SIZE
+    take = (AVAILABLE_PAGE_SIZE - 1) if has_more else AVAILABLE_PAGE_SIZE
+    page = apps[offset: offset + take]
+
+    rows = []
+    for app in page:
+        opp = app.get("opportunities") or {}
+        title = opp.get("title") or app.get("custom_title") or "Opportunity"
+        if len(title) > 24:
+            title = title[:21] + "..."
+        desc_parts = []
+        if opp.get("type"):
+            desc_parts.append(opp["type"])
+        if opp.get("application_deadline"):
+            desc_parts.append(f"Deadline: {opp['application_deadline']}")
+        description = " \u00b7 ".join(desc_parts)
+        if len(description) > 72:
+            description = description[:69] + "..."
+        rows.append({"id": f"avail_open_{app['id']}", "title": title, "description": description})
+
+    if has_more:
+        rows.append({"id": f"avail_more_{offset + take}", "title": "More \u2192", "description": ""})
+
+    await send_whatsapp_list_message(
+        phone_number,
+        body="\U0001F4CB Opportunities matched to your interests -- tap one to view it:",
+        sections=[{"title": "Available Apps", "rows": rows}]
+    )
+
+
+async def _handle_available_application_open(phone_number: str, application_id: str) -> None:
+    """Re-send a matched opportunity's New Match Notification (Phase H) when its row is tapped.
+
+    Reusing the Phase H sender gives the user the same Apply Now / Remind Me Later /
+    Ignore buttons without duplicating that composition here.
+    """
+    def _fetch():
+        res = (supabase.from_("applications")
+               .select("id, status, custom_title, "
+                       "opportunities(title, description, application_start_date, application_deadline, "
+                       "posters(display_name))")
+               .eq("id", application_id)
+               .limit(1)
+               .execute())
+        return res.data[0] if res.data else None
+
+    async with _db_semaphore:
+        application = await anyio.to_thread.run_sync(_fetch)
+
+    if not application:
+        await send_whatsapp_message(phone_number, body="That opportunity is no longer available.")
+        return
+    if application.get("status") != "available":
+        await send_whatsapp_message(
+            phone_number,
+            body="That one has already moved on -- check My Applications for its current status."
+        )
+        return
+
+    opp = application.get("opportunities") or {}
+    poster = opp.get("posters") or {}
+    await send_new_match_notification(
+        to=phone_number,
+        title=opp.get("title") or application.get("custom_title") or "Opportunity",
+        poster_name=poster.get("display_name") or "",
+        description=opp.get("description") or "",
+        application_id=application_id,
+        application_start_date=opp.get("application_start_date"),
+        application_deadline=opp.get("application_deadline"),
+    )
+
 
 # ============================================================
 # SELECT POST FOR EDIT -- Pre-fill data and start edit flow
