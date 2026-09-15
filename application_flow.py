@@ -9,6 +9,12 @@ buttons on the New Match Notification (3-Full-Product-Logic.md Section 5):
                       +2 days; status stays 'available'
   Ignore           -> deletion confirmation first (Section 13), then delete the row
 
+Phase J adds the "Ongoing" stage, driven by the recurring check-in message
+(3-Full-Product-Logic.md Section 6):
+  Continue Application -> re-send the link, status stays 'ongoing'
+  Finished Application -> status -> 'under_review'; next reminder from result_date rules
+  Remind Me Later      -> ask for a custom time, or the free-text "never" (confirmation first)
+
 Also provides:
   * the reusable deletion-confirmation step (Section 13) -- built once, called from
     every deletion trigger (Ignore now; Never / No / Delete in later phases);
@@ -58,10 +64,24 @@ REMINDER_PROMPT = (
     "\"Sept 18\"), or reply \"default\" for 2 days."
 )
 
+# Prompt shown after "Remind Me Later" on an Ongoing check-in (Section 6.1):
+# a time choice (same free-text formats) plus the free-text "never" keyword.
+ONGOING_REMINDER_PROMPT = (
+    'When should I check back? Reply with a time (e.g. "in 3 days", "in 5 hours", '
+    '"Sept 18"), or reply "never" to stop reminders for this one.'
+)
+
+
 # Button-id prefixes this module owns. The ids are stateless (they carry the
 # `applications` row id), so handlers never need conversation_states to know which
 # row was tapped. Exported so webhook.py routes on the same source of truth.
-APPLICATION_BUTTON_PREFIXES = ("apply_now_", "remind_later_", "ignore_")
+APPLICATION_BUTTON_PREFIXES = (
+    "apply_now_",
+    "remind_later_",
+    "ignore_",
+    "continue_application_",
+    "finished_application_",
+)
 DELETION_BUTTON_PREFIXES = ("confirm_delete_", "cancel_delete_")
 
 
@@ -75,8 +95,8 @@ async def _get_application(application_id: str) -> Optional[Dict[str, Any]]:
         return (
             supabase.from_("applications")
             .select(
-                "id, user_id, status, opportunity_id, custom_title, "
-                "opportunities(title, link, application_deadline)"
+                "id, user_id, status, opportunity_id, custom_title, custom_result_date, "
+                "opportunities(title, link, application_deadline, result_date)"
             )
             .eq("id", application_id)
             .limit(1)
@@ -274,6 +294,54 @@ async def _handle_ignore(phone_number: str, application_id: str, application: Di
     logger.info(f"IGNORE_CONFIRM_PROMPT: phone_number={phone_number} application_id={application_id}")
 
 
+async def _handle_continue_application(phone_number: str, application_id: str, application: Dict[str, Any]) -> None:
+    """ongoing + Continue Application -> re-send the link; status is unchanged (Section 6.2)."""
+    opportunity = application.get("opportunities") or {}
+    link = opportunity.get("link")
+
+    if link:
+        body = f"Here's the link again: {link}"
+    else:
+        body = "This one doesn't have a link saved, but it's still in your Ongoing list."
+    await send_whatsapp_message(phone_number, body=body)
+    logger.info(f"CONTINUE_APPLICATION_OK: phone_number={phone_number} application_id={application_id}")
+
+
+async def _handle_finished_application(phone_number: str, application_id: str, application: Dict[str, Any]) -> None:
+    """ongoing + Finished Application -> under_review, next reminder per result_date (Section 6.3)."""
+    opportunity = application.get("opportunities") or {}
+    result_date = opportunity.get("result_date") or application.get("custom_result_date")
+
+    if result_date:
+        day = date.fromisoformat(str(result_date))
+        # Fire the Yes/No/Waiting check the day after results are expected (Section 6.3).
+        when = datetime(day.year, day.month, day.day, 9, 0, tzinfo=timezone.utc) + timedelta(days=1)
+        body = "Nice work finishing it! I'll check in around when results are expected."
+    else:
+        when = datetime.now(timezone.utc) + timedelta(days=3)
+        body = "Nice work finishing it! I'll check back in a few days."
+
+    await _update_application(application_id, {"status": "under_review", "next_reminder_at": when.isoformat()})
+    await send_whatsapp_message(phone_number, body=body)
+    logger.info(
+        f"FINISHED_APPLICATION_OK: phone_number={phone_number} application_id={application_id} "
+        f"next_reminder_at={when.isoformat()}"
+    )
+
+
+async def _handle_remind_later_ongoing(phone_number: str, application_id: str, application: Dict[str, Any]) -> None:
+    """ongoing + Remind Me Later -> free-text time choice plus the "never" option (Section 6.1)."""
+    await set_conversation_state(
+        phone_number=phone_number,
+        flow="remind_later",
+        step="awaiting_time",
+        data={"application_id": application_id},
+    )
+    await send_whatsapp_message(phone_number, body=ONGOING_REMINDER_PROMPT)
+    logger.info(f"ONGOING_REMIND_LATER_PROMPT: phone_number={phone_number} application_id={application_id}")
+
+
+
 # ============================================================
 # DISPATCH TABLE (2-Architecture-Doc.md Section 3B -- dict, not if/elif)
 # ============================================================
@@ -285,12 +353,15 @@ _DISPATCH = {
     ("available", "apply_now"): _handle_apply_now,
     ("available", "remind_later"): _handle_remind_later,
     ("available", "ignore"): _handle_ignore,
+    ("ongoing", "remind_later"): _handle_remind_later_ongoing,
+    ("ongoing", "continue_application"): _handle_continue_application,
+    ("ongoing", "finished_application"): _handle_finished_application,
 }
 
 
 def _split_application_button(button_id: str) -> Tuple[Optional[str], Optional[str]]:
     """Split a stateless button id into (action, application_id)."""
-    for action in ("apply_now", "remind_later", "ignore"):
+    for action in ("apply_now", "remind_later", "ignore", "continue_application", "finished_application"):
         prefix = action + "_"
         if button_id.startswith(prefix):
             return action, button_id[len(prefix):]
@@ -359,15 +430,31 @@ async def handle_deletion_confirmation(phone_number: str, button_id: str) -> Non
 async def handle_remind_later_time_step(
     phone_number: str, payload: Dict[str, Any], conversation_state: Dict[str, Any]
 ) -> None:
-    """Free-text reply to the Remind-Me-Later prompt: set next_reminder_at (Section 5.2)."""
+    """Free-text reply to the Remind-Me-Later prompt (Sections 5.2 / 6.1):
+
+    Sets next_reminder_at from the parsed time, or -- from Ongoing -- routes the
+    free-text "never" into the reusable deletion confirmation (Section 6.1).
+    """
     application_id = (conversation_state.get("collected_data") or {}).get("application_id")
     application = await _get_application(application_id) if application_id else None
-    if not application or application.get("status") != "available":
+    status = (application or {}).get("status")
+    if not application or status not in ("available", "ongoing"):
         await clear_conversation_state(phone_number)
-        await send_whatsapp_message(phone_number, body="That opportunity is no longer available to remind you about.")
+        await send_whatsapp_message(phone_number, body="That application is no longer active, so there's nothing to remind you about.")
         return
 
-    when, human = _parse_reminder_time(_extract_message_text(payload))
+    text = _extract_message_text(payload)
+
+    # "Never" (Section 6.1) is offered only from Ongoing and is a free-text keyword
+    # (the time-choice step is free text per Section 0). It routes into the same
+    # reusable deletion confirmation as every other delete trigger (Section 13).
+    if status == "ongoing" and _normalise_time_text(text) == "never":
+        await clear_conversation_state(phone_number)
+        await send_deletion_confirmation(phone_number, application_id, _application_title(application))
+        logger.info(f"NEVER_CONFIRM_PROMPT: phone_number={phone_number} application_id={application_id}")
+        return
+
+    when, human = _parse_reminder_time(text)
     await _update_application(application_id, {"next_reminder_at": when.isoformat()})
     await clear_conversation_state(phone_number)
     logger.info(

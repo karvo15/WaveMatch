@@ -323,3 +323,46 @@ async def send_new_match_notification(
     ]
 
     return await send_whatsapp_buttons(to, body=body, buttons=buttons)
+
+
+async def send_ongoing_checkin_notification(
+    to: str,
+    title: str,
+    application_id: str,
+    deadline: Optional[str] = None,
+) -> Dict[str, Any]:
+    """
+    Send the recurring "Ongoing check-in" message (3-Full-Product-Logic.md
+    Section 6; 4-Message-Flow-Examples.md Section 6). Body:
+        <wave> Still working on <title>? Deadline is <deadline>.
+    with three buttons: Remind Me Later / Continue Application / Finished
+    Application. (The scheduler in Phase L is what actually fires this.)
+
+    Same single-swap-point rule as send_new_match_notification: this proactive
+    message is composed here so the pre-approved template can be dropped in once
+    Meta review clears (Platform-Constraints.md Section 1).
+
+    Button titles are abbreviated to respect the 20-character cap
+    (Platform-Constraints.md Section 10.2); button ids are stateless and carry
+    the applications row id.
+    """
+    body = f"\U0001f44b Still working on {title}?"
+    if deadline:
+        body = f"{body} Deadline is {deadline}."
+
+    buttons = [
+        {
+            "type": "reply",
+            "reply": {"id": f"remind_later_{application_id}", "title": "\u23f0 Remind Me Later"},
+        },
+        {
+            "type": "reply",
+            "reply": {"id": f"continue_application_{application_id}", "title": "\U0001f517 Continue App"},
+        },
+        {
+            "type": "reply",
+            "reply": {"id": f"finished_application_{application_id}", "title": "\u2705 Finished App"},
+        },
+    ]
+
+    return await send_whatsapp_buttons(to, body=body, buttons=buttons)
