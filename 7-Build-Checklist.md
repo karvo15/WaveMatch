@@ -68,7 +68,7 @@ Small, sequential, individually-testable steps. Each step should be verifiable b
 - [x] Build per-post admin approval (Full-Product-Logic.md Section 16): on submission, check the poster's `requires_post_approval` flag — if `true`, create the opportunity as `pending_approval` and send the admin a preview message with **[Approve Post] / [Reject Post]** buttons (per Section 0's Interaction Type Reference); **Approve** flips status to `active` (Matching Engine trigger deferred to Phase H); **Reject** notifies the poster and leaves the opportunity out of circulation. If the flag is `false` (default), skip this entirely and proceed as already specified above. Since the admin's existing free-text command handler (`approve [id]` / `reject [id]` for poster registration, from Phase F) and this new button-based post-approval both route through the same admin phone number, explicitly confirm the two dispatch paths don't collide.
 - [x] Test end to end: confirm every intermediate step correctly advances (not just the first one) — same dead-end risk as registration, now a 9-step version of it; additionally, confirm both `requires_post_approval = true` and `= false` paths behave correctly for at least one test poster each, and confirm the admin's free-text poster-approval command and the new post-approval buttons don't interfere with each other
 
-> **CURRENT PHASE: Phase J - Ongoing Reminder Cycle (in progress).** Checked boxes = complete. History in CLAUDE.md.
+> **CURRENT PHASE: Phase K - Under Review → Outcome (in progress).** Checked boxes = complete. History in CLAUDE.md.
 
 ## Phase H — Matching Engine  [COMPLETE]
 
@@ -89,12 +89,14 @@ Small, sequential, individually-testable steps. Each step should be verifiable b
 
 > **Implementation (done):** `application_flow.py` (`handle_application_button`, `handle_deletion_confirmation`, `handle_remind_later_time_step`, `_parse_reminder_time`) + wiring in `webhook.py` STEP 6 / STEP 9; the `(status, action)` dispatch is a dict (`_DISPATCH`) per Architecture 3B; the reusable Section 13 confirmation is `send_deletion_confirmation`; the no-response fallback is set at row creation in `matching.py` (`next_reminder_at = now + 2 days`). Verified live against Supabase (temp fixtures, sends stubbed): 28/28 checks passed, 0 fixture leftovers. Phase J is next.
 
-## Phase J — Ongoing Reminder Cycle
+## Phase J — Ongoing Reminder Cycle  [COMPLETE]
 
-- [ ] Build the recurring Ongoing check-in message + 3 buttons
-- [ ] Handle **Continue Application**: re-send link, status unchanged
-- [ ] Handle **Finished Application**: move to `under_review`, set `next_reminder_at` based on whether `result_date` exists
-- [ ] Handle **Remind Me Later** (from Ongoing), including the **Never** sub-option (confirmation first, then delete)
+- [x] Build the recurring Ongoing check-in message + 3 buttons
+- [x] Handle **Continue Application**: re-send link, status unchanged
+- [x] Handle **Finished Application**: move to `under_review`, set `next_reminder_at` based on whether `result_date` exists
+- [x] Handle **Remind Me Later** (from Ongoing), including the **Never** sub-option (confirmation first, then delete)
+
+> **Implementation (done):** `whatsapp.py:send_ongoing_checkin_notification` (the 3-button check-in; button titles abbreviated to fit the 20-char cap) + `application_flow.py` ongoing handlers `_handle_continue_application` / `_handle_finished_application` / `_handle_remind_later_ongoing` added to `_DISPATCH`; the free-text `"never"` keyword (honoured only from `ongoing`) routes into the existing reusable Section 13 confirmation. Verified live against Supabase (temp fixtures, sends stubbed): 29/29 checks passed, 0 fixtures left. Phase K is next.
 
 ## Phase K — Under Review → Outcome
 
