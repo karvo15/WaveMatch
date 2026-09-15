@@ -15,6 +15,7 @@ from database import supabase
 from whatsapp import send_whatsapp_message, send_whatsapp_buttons, send_whatsapp_list_message, send_new_match_notification
 from registration import parse_interests  # reuse layered matching
 from matching import run_matching_engine  # Phase H: Matching Engine
+from propagation import propagate_opportunity_edit  # Phase M: poster edit propagation
 
 # Load environment variables
 load_dotenv()
@@ -638,6 +639,10 @@ async def _confirm_and_send_opportunity(phone_number: str, conversation_state: D
     if flow == "edit_opportunity" and opportunity_id:
 
         try:
+            # Snapshot BEFORE writing: Phase M propagation needs to know which fields
+            # actually moved (2-Architecture-Doc.md Section 3D "compare old vs. new
+            # values before writing"), and once the UPDATE runs the old values are gone.
+            old_row = await _get_opportunity_by_id(opportunity_id)
             # UPDATE existing opportunity
             await _update_opportunity(opportunity_id, opp_data)
             # Delete old tags
@@ -670,6 +675,19 @@ async def _confirm_and_send_opportunity(phone_number: str, conversation_state: D
             except Exception:
                 logger.exception(f"OPPORTUNITY_CONFIRM_EDIT_NOTIFY_FAILED: phone_number={phone_number}")
             return
+
+        # Phase M: tell everyone still tracking this post, and bring the date-derived
+        # parts of their rows back in line. Deliberately its own try/except -- the edit
+        # is already saved, so a propagation problem must never reach the poster as
+        # "saving failed", nor leave them without a reply.
+        try:
+            await propagate_opportunity_edit(opportunity_id, old_row, opp_data)
+        except Exception:
+            logger.exception(
+                f"OPPORTUNITY_EDIT_PROPAGATION_FAILED: phone_number={phone_number} "
+                f"opportunity_id={opportunity_id}"
+            )
+
         await send_whatsapp_message(
             phone_number,
             body="\u2705 Your opportunity has been updated! All tracked users will be notified of the changes."
