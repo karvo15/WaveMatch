@@ -11,7 +11,8 @@ from whatsapp import send_whatsapp_buttons, send_whatsapp_message
 from conversation import get_conversation_state, set_conversation_state, clear_conversation_state, _db_semaphore
 from database import supabase
 import anyio
-from rapidfuzz import fuzz, process
+import tags  # Phase N: the one implementation of Section 10.2's layered matching
+from tags import FIXED_CATEGORIES, parse_interests  # re-exported for existing callers
 
 # Load environment variables
 load_dotenv()
@@ -20,42 +21,10 @@ load_dotenv()
 logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
 
-# Fixed category list for user interests (from Section 10.2 and 4-Message-Flow-Examples.md)
-FIXED_CATEGORIES = [
-    "Scholarships",
-    "Internships",
-    "Volunteering",
-    "Tech Events / Conferences",
-    "Competitions / Hackathons",
-    "Workshops / Trainings",
-    "Bootcamps",
-    "Job Opportunities",
-    "Research Opportunities",
-    "Fellowships",
-    "Grants / Funding",
-    "Networking Events"
-]
-
-# Normalized versions for matching (lowercase, stripped)
-NORMALIZED_FIXED_CATEGORIES = [cat.lower().strip() for cat in FIXED_CATEGORIES]
-
-# Alias dictionary for common shorthands
-ALIAS_DICT = {
-    "job": "Job Opportunities",
-    "internship": "Internships",
-    "volunteer": "Volunteering",
-    "scholarship": "Scholarships",
-    "grant": "Grants / Funding",
-    "fellowship": "Fellowships",
-    "hackathon": "Competitions / Hackathons",
-    "bootcamp": "Bootcamps",
-    "workshop": "Workshops / Trainings",
-    "training": "Workshops / Trainings",
-    "event": "Tech Events / Conferences",
-    "conference": "Tech Events / Conferences",
-    "research": "Research Opportunities",
-    "networking": "Networking Events"
-}
+# The fixed category list, its normalized forms and the alias dictionary live in
+# tags.py (Phase N) -- next to the matcher that uses them, and shared with the
+# nightly dedup job. `FIXED_CATEGORIES` and `parse_interests` are re-exported
+# above so existing imports keep working.
 
 
 async def handle_first_contact(phone_number: str) -> None:
@@ -219,41 +188,9 @@ async def handle_user_interests_step(phone_number: str, payload: Dict[str, Any],
             async with _db_semaphore:
                 await anyio.to_thread.run_sync(_delete_existing_user_tags)
 
-            # For each parsed interest, create user_tags junction entries
-            for interest in parsed_interests:
-                tag_name = interest["name"]
-                is_custom = interest["is_custom"]
-
-                # Find or create tag
-                def _get_or_create_tag():
-                    # First try to find existing tag by name (case-insensitive)
-                    existing = supabase.from_("tags").select("id").ilike("name", tag_name).limit(1).execute()
-                    if existing.data and len(existing.data) > 0:
-                        return existing.data[0]["id"]
-
-                    # If not found and it's a custom tag, create it
-                    if is_custom:
-                        new_tag = supabase.from_("tags").insert({
-                            "name": tag_name,
-                            "is_custom": True
-                        }).execute()
-                        return new_tag.data[0]["id"] if new_tag.data else None
-
-                    # If not found and not custom, return None (shouldn't happen with our parsing)
-                    return None
-
-                async with _db_semaphore:
-                    tag_id = await anyio.to_thread.run_sync(_get_or_create_tag)
-                if tag_id:
-                    # Create user_tag junction
-                    def _create_user_tag():
-                        return supabase.from_("user_tags").insert({
-                            "user_id": user_id,
-                            "tag_id": tag_id
-                        }).execute()
-
-                    async with _db_semaphore:
-                        await anyio.to_thread.run_sync(_create_user_tag)
+            # Phase N: one shared write path (tags.link_tags) used by both user interests
+            # and poster tags, so the two can't drift apart.
+            await tags.link_tags("user_tags", "user_id", user_id, parsed_interests)
 
         # Clear conversation state (flow complete)
         await clear_conversation_state(phone_number)
@@ -339,41 +276,9 @@ async def handle_interests_edit_step(phone_number: str, payload: Dict[str, Any],
             async with _db_semaphore:
                 await anyio.to_thread.run_sync(_delete_user_tags)
 
-            # For each parsed interest, create user_tags junction entries
-            for interest in parsed_interests:
-                tag_name = interest["name"]
-                is_custom = interest["is_custom"]
-
-                # Find or create tag
-                def _get_or_create_tag():
-                    # First try to find existing tag by name (case-insensitive)
-                    existing = supabase.from_("tags").select("id").ilike("name", tag_name).limit(1).execute()
-                    if existing.data and len(existing.data) > 0:
-                        return existing.data[0]["id"]
-
-                    # If not found and it's a custom tag, create it
-                    if is_custom:
-                        new_tag = supabase.from_("tags").insert({
-                            "name": tag_name,
-                            "is_custom": True
-                        }).execute()
-                        return new_tag.data[0]["id"] if new_tag.data else None
-
-                    # If not found and not custom, return None (shouldn't happen with our parsing)
-                    return None
-
-                async with _db_semaphore:
-                    tag_id = await anyio.to_thread.run_sync(_get_or_create_tag)
-                if tag_id:
-                    # Create user_tag junction
-                    def _create_user_tag():
-                        return supabase.from_("user_tags").insert({
-                            "user_id": user_id,
-                            "tag_id": tag_id
-                        }).execute()
-
-                    async with _db_semaphore:
-                        await anyio.to_thread.run_sync(_create_user_tag)
+            # Phase N: one shared write path (tags.link_tags) used by both user interests
+            # and poster tags, so the two can't drift apart.
+            await tags.link_tags("user_tags", "user_id", user_id, parsed_interests)
 
         # Clear conversation state (flow complete)
         await clear_conversation_state(phone_number)
@@ -395,86 +300,6 @@ async def handle_interests_edit_step(phone_number: str, payload: Dict[str, Any],
             )
         except Exception:
             logger.exception(f"USER_INTERESTS_STEP_NOTIFY_FAILED: phone_number={phone_number}")
-
-
-def parse_interests(raw_text: str) -> List[Dict[str, Any]]:
-    """
-    Implements layered matching process from Section 10.2:
-    1. Normalize: lowercase, trim whitespace, strip trailing punctuation
-    2. Exact match against normalized fixed list (12 starter tags)
-    3. Substring/keyword match: e.g. "hackathon" matches "Competitions / Hackathons"
-    4. Fuzzy match: using rapidfuzz with score cutoff 80 for typos like "scholarshp"
-    5. Alias dictionary: e.g. "job" → Job Opportunities, "grant" → Grants / Funding
-    6. Fallback: custom tag - if no match above, create new tag with `is_custom = true`
-    Returns list of dicts: [{"name": "tag_name", "is_custom": bool}, ...]
-    """
-    # 1. Normalize — lowercase, trim whitespace, strip trailing punctuation
-    normalized = raw_text.lower().strip().rstrip('.,!?;')
-    # Split by comma and clean each term
-    raw_terms = [term.strip() for term in normalized.split(',') if term.strip()]
-
-    result = []
-
-    for term in raw_terms:
-        # Skip empty terms
-        if not term:
-            continue
-
-        matched = False
-
-        # 2. Exact match against normalized fixed list
-        if term in NORMALIZED_FIXED_CATEGORIES:
-            # Find the original category name to preserve formatting
-            idx = NORMALIZED_FIXED_CATEGORIES.index(term)
-            result.append({"name": FIXED_CATEGORIES[idx], "is_custom": False})
-            matched = True
-            continue
-
-        # 3. Substring/keyword match
-        for idx, category in enumerate(NORMALIZED_FIXED_CATEGORIES):
-            if term in category or category in term:
-                result.append({"name": FIXED_CATEGORIES[idx], "is_custom": False})
-                matched = True
-                break
-        if matched:
-            continue
-
-        # 4. Fuzzy match using rapidfuzz (score cutoff >= 80)
-        best_match = process.extractOne(term, NORMALIZED_FIXED_CATEGORIES, scorer=fuzz.ratio)
-        if best_match and best_match[1] >= 80:  # score >= 80
-            idx = NORMALIZED_FIXED_CATEGORIES.index(best_match[0])
-            result.append({"name": FIXED_CATEGORIES[idx], "is_custom": False})
-            matched = True
-            continue
-
-        # 5. Alias dictionary lookup
-        if term in ALIAS_DICT:
-            alias_target = ALIAS_DICT[term]
-            # Find the category in our fixed list
-            try:
-                idx = FIXED_CATEGORIES.index(alias_target)
-                result.append({"name": FIXED_CATEGORIES[idx], "is_custom": False})
-                matched = True
-            except ValueError:
-                # Alias target not in fixed list (shouldn't happen with our dict)
-                pass
-            if matched:
-                continue
-
-        # 6. Fallback: custom tag
-        result.append({"name": term.title(), "is_custom": True})  # Title case for display
-
-    # Deduplicate by lowercased name so the same canonical tag is never produced twice.
-    # Several raw terms can match one tag (e.g. "tech events, event"), and linking the
-    # same (user/opportunity, tag) junction twice would violate the composite PK.
-    seen = set()
-    unique_result = []
-    for item in result:
-        key = item["name"].lower().strip()
-        if key not in seen:
-            seen.add(key)
-            unique_result.append(item)
-    return unique_result
 
 
 async def send_main_menu(phone_number: str, is_returning_user: bool = False, is_returning_poster: bool = False) -> None:

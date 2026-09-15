@@ -126,8 +126,8 @@ Small, sequential, individually-testable steps. Each step should be verifiable b
 
 - [x] Build the Available Applications list view — **paginate if it could exceed 10 items** (9 items + "More →" row); keep item titles under 24 characters
 - [x] Build the My Applications sub-menu (Under Review / Ongoing / Scheduled) as list views — same 10-row/24-char constraints apply
-- [ ] Build the fuzzy-match + alias-dictionary matching function using `rapidfuzz` (shared by both user interest parsing and poster tag parsing — build once, call from both)
-- [ ] Build the nightly tag-dedup job (can reuse the same APScheduler instance from Phase L, registered as a second job)
+- [x] Build the fuzzy-match + alias-dictionary matching function using `rapidfuzz` (shared by both user interest parsing and poster tag parsing — build once, call from both)
+- [x] Build the nightly tag-dedup job (can reuse the same APScheduler instance from Phase L, registered as a second job)
 
 > **Note:** bullet 1 was pulled forward and built during the Phase K-start bug fix (the main-menu **Available Apps** button must show the user's matches). Tapping a row re-sends the Phase H New Match Notification. Bullet 2 (My Applications sub-menu) is still a stub.
 
