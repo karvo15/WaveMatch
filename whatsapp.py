@@ -423,3 +423,32 @@ async def send_deadline_heads_up_notification(
     """
     body = f"\u23f3 Reminder: {title} deadline is in 2 days ({deadline})."
     return await send_whatsapp_message(to, body=body)
+
+
+async def send_opportunity_update_notification(
+    to: str,
+    title: str,
+    change_lines: List[str],
+    reminders_adjusted: bool = False,
+) -> Dict[str, Any]:
+    """
+    Tell someone still tracking an opportunity that its poster edited it.
+    Spec: 3-Full-Product-Logic.md Section 3.1, 4-Message-Flow-Examples.md Section 9. Body:
+        Update: <title>
+        <one line per changed field>
+        Your reminders have been adjusted automatically.
+
+    Sent whenever an edit actually changes something, and mandatory -- never batched,
+    never silently skipped -- whenever the deadline moved (Section 3.1's hard rule).
+    `change_lines` is built by propagation.py, so the wording sits next to the diffing
+    logic that knows what really changed; a title change needs no line of its own
+    because the new title is already the heading.
+
+    Single template swap-point for this proactive message, like the other senders
+    (Platform-Constraints.md Section 1).
+    """
+    lines = [f"\U0001F4E2 Update: {title}"]
+    lines.extend(change_lines)
+    if reminders_adjusted:
+        lines.append("Your reminders have been adjusted automatically.")
+    return await send_whatsapp_message(to, body="\n".join(lines))

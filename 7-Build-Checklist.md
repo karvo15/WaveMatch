@@ -117,8 +117,8 @@ Small, sequential, individually-testable steps. Each step should be verifiable b
 
 ## Phase M — Edit Propagation & Manual Tracking
 
-- [ ] Build poster edit → affected-user notification logic (mandatory, explicit deadline-change wording per Full-Product-Logic.md Section 3.1)
-- [ ] Build automatic date sync on linked `applications` when a poster edits dates, including resetting `deadline_heads_up_sent` if the deadline changed
+- [x] Build poster edit → affected-user notification logic (mandatory, explicit deadline-change wording per Full-Product-Logic.md Section 3.1)
+- [x] Build automatic date sync on linked `applications` when a poster edits dates, including resetting `deadline_heads_up_sent` if the deadline changed
 - [ ] Build the user-facing "Add manually" flow (Section 9.1) — phase-specific entry point (opened from within Ongoing/Under Review/Scheduled), tracked via `conversation_states` like any other multi-step flow
 - [ ] Build the user-facing "Edit an item" flow (Section 9.2)
 
