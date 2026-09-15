@@ -44,6 +44,8 @@ from zoneinfo import ZoneInfo
 import anyio
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
+
+import tags  # Phase N: Section 10.3's nightly dedup pass
 from dotenv import load_dotenv
 
 from conversation import _db_semaphore
@@ -77,6 +79,12 @@ SCHEDULER_TZ = os.getenv("SCHEDULER_TZ", "Africa/Kigali")
 SCHEDULER_HOUR = _env_int("SCHEDULER_HOUR", 8)
 SCHEDULER_MINUTE = _env_int("SCHEDULER_MINUTE", 0)
 SCHEDULER_ENABLED = os.getenv("SCHEDULER_ENABLED", "true").strip().lower() not in ("0", "false", "no", "off")
+
+# Section 10.3's dedup pass runs on the same scheduler instance but on its own cron (early
+# morning, so it never races the daytime reminder passes) and its own on/off switch.
+TAG_DEDUP_HOUR = _env_int("TAG_DEDUP_HOUR", 3)
+TAG_DEDUP_MINUTE = _env_int("TAG_DEDUP_MINUTE", 30)
+TAG_DEDUP_ENABLED = os.getenv("TAG_DEDUP_ENABLED", "true").strip().lower() not in ("0", "false", "no", "off")
 
 # ---- Section 7 constants ----
 HEADS_UP_DAYS = 2                   # 7.1: warn two days before the deadline
@@ -478,12 +486,34 @@ async def run_daily_scheduler() -> Dict[str, int]:
     return summary
 
 
+async def run_tag_dedup() -> Dict[str, Any]:
+    """
+    Section 10.3's nightly dedup pass: merge near-duplicate custom tags into one canonical
+    tag, re-pointing the users and opportunities that referenced the duplicate.
+
+    Deliberately separate from `run_daily_scheduler()`: it has nothing to do with anyone's
+    day, and keeping it apart means a tagging problem can never cost a user a reminder.
+    """
+    logger.info("TAG_DEDUP_START")
+    try:
+        return await tags.merge_near_duplicate_tags()
+    except Exception:
+        logger.exception("TAG_DEDUP_FAILED")
+        return {
+            "groups": 0,
+            "duplicates": 0,
+            "repointed_user_tags": 0,
+            "repointed_opportunity_tags": 0,
+            "deleted_tags": 0,
+        }
+
+
 # ============================================================
 # APSCHEDULER REGISTRATION (2-Architecture-Doc.md Section 3C, option 1)
 # ============================================================
 
 def create_scheduler() -> AsyncIOScheduler:
-    """Build (but do not start) the daily job, so tests can inspect it without running it."""
+    """Build (but do not start) both jobs, so tests can inspect them without running either."""
     scheduler = AsyncIOScheduler(timezone=_tz())
     scheduler.add_job(
         run_daily_scheduler,
@@ -496,11 +526,29 @@ def create_scheduler() -> AsyncIOScheduler:
     logger.info(
         f"SCHEDULER_REGISTERED: daily at {SCHEDULER_HOUR:02d}:{SCHEDULER_MINUTE:02d} {SCHEDULER_TZ}"
     )
+
+    # Phase N: the second job on the same instance (7-Build-Checklist.md).
+    if TAG_DEDUP_ENABLED:
+        scheduler.add_job(
+            run_tag_dedup,
+            CronTrigger(hour=TAG_DEDUP_HOUR, minute=TAG_DEDUP_MINUTE, timezone=_tz()),
+            id="wave_match_tag_dedup",
+            replace_existing=True,
+            coalesce=True,
+            misfire_grace_time=3600,
+        )
+        logger.info(
+            f"SCHEDULER_REGISTERED: tag dedup nightly at "
+            f"{TAG_DEDUP_HOUR:02d}:{TAG_DEDUP_MINUTE:02d} {SCHEDULER_TZ}"
+        )
+    else:
+        logger.info("TAG_DEDUP_DISABLED: TAG_DEDUP_ENABLED is false -- not registering the dedup job")
+
     return scheduler
 
 
 def start_scheduler() -> Optional[AsyncIOScheduler]:
-    """Start the daily job, unless SCHEDULER_ENABLED is turned off. Returns None if disabled."""
+    """Start the scheduler's jobs, unless SCHEDULER_ENABLED is turned off. Returns None if disabled."""
     if not SCHEDULER_ENABLED:
         logger.info("SCHEDULER_DISABLED: SCHEDULER_ENABLED is false -- not starting the daily job")
         return None

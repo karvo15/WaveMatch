@@ -8,12 +8,13 @@ import logging
 from typing import Dict, Any, List, Optional
 from datetime import datetime, date, timezone
 import anyio
+import tags  # Phase N: shared tag matching + maintenance
 from dotenv import load_dotenv
 
 from conversation import get_conversation_state, set_conversation_state, clear_conversation_state, _db_semaphore
 from database import supabase
 from whatsapp import send_whatsapp_message, send_whatsapp_buttons, send_whatsapp_list_message, send_new_match_notification
-from registration import parse_interests  # reuse layered matching
+from tags import parse_interests  # Phase N: shared layered matching (Section 10.2)
 from matching import run_matching_engine  # Phase H: Matching Engine
 from propagation import propagate_opportunity_edit  # Phase M: poster edit propagation
 
@@ -59,25 +60,14 @@ async def _create_opportunity(collected_data: Dict[str, Any]) -> Optional[str]:
     async with _db_semaphore:
         return await anyio.to_thread.run_sync(_create)
 async def _get_or_create_tag(tag_name: str, is_custom: bool) -> Optional[str]:
-    """Find or create a tag by name (case-insensitive)."""
-    def _get_or_create():
-        # First try to find existing tag by name (case-insensitive)
-        existing = supabase.from_("tags").select("id").ilike("name", tag_name).limit(1).execute()
-        if existing.data and len(existing.data) > 0:
-            return existing.data[0]["id"]
+    """
+    Find or create a tag by name (case-insensitive).
 
-        # If not found and it's a custom tag, create it
-        if is_custom:
-            new_tag = supabase.from_("tags").insert({
-                "name": tag_name,
-                "is_custom": True
-            }).execute()
-            return new_tag.data[0]["id"] if new_tag.data else None
-
-        # If not found and not custom, return None (shouldn't happen with our parsing)
-        return None
-    async with _db_semaphore:
-        return await anyio.to_thread.run_sync(_get_or_create)
+    Phase N moved the implementation to tags.py so the poster side, the user side and the
+    nightly dedup job all share one answer to "which tag is this". Kept as a named wrapper
+    here because it is the single write point both the create and edit paths call.
+    """
+    return await tags.get_or_create_tag(tag_name, is_custom)
 
 async def _count_matched_users(tag_ids: List[str]) -> int:
     """Count distinct users who have at least one of the given tag IDs."""
