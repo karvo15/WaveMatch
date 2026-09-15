@@ -366,3 +366,41 @@ async def send_ongoing_checkin_notification(
     ]
 
     return await send_whatsapp_buttons(to, body=body, buttons=buttons)
+
+
+async def send_outcome_check_notification(
+    to: str,
+    title: str,
+    application_id: str,
+) -> Dict[str, Any]:
+    """
+    Send the "Under Review -> Outcome" check (3-Full-Product-Logic.md Section 8;
+    4-Message-Flow-Examples.md Section 8). Body:
+        Any news on <title>? Were you picked?
+    with three buttons: Yes / No / Still Waiting. (The scheduler's Result-Check
+    pass in Phase L is what actually fires this.)
+
+    Same single-swap-point rule as the other proactive messages: composed here so
+    the pre-approved template can be dropped in once Meta review clears
+    (Platform-Constraints.md Section 1). Button ids are stateless and carry the
+    applications row id.
+    """
+    body = f"Any news on {title}? Were you picked?"
+
+    buttons = [
+        {
+            "type": "reply",
+            "reply": {"id": f"outcome_yes_{application_id}", "title": "\U0001f389 Yes"},
+        },
+        {
+            "type": "reply",
+            "reply": {"id": f"outcome_no_{application_id}", "title": "\u274c No"},
+        },
+        {
+            "type": "reply",
+            "reply": {"id": f"outcome_waiting_{application_id}", "title": "\u23f3 Still Waiting"},
+        },
+    ]
+
+    return await send_whatsapp_buttons(to, body=body, buttons=buttons)
+

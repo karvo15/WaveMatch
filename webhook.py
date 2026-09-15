@@ -442,6 +442,9 @@ async def receive_webhook(request: Request) -> Dict[str, str]:
                 logger.warning(f"UNEXPECTED POSTER FLOW STEP: flow={flow}, step={step}")
         elif flow == "remind_later" and step == "awaiting_time":
             await application_flow.handle_remind_later_time_step(phone_number, payload, conversation_state)
+        elif flow == "outcome_event_date" and step == "awaiting_event_date":
+            # Phase K (Section 8.3): free-text event start date after a "Yes" outcome.
+            await application_flow.handle_outcome_event_date_step(phone_number, payload, conversation_state)
         else:
             # Log unexpected flow/step combination for debugging
             logger.warning(f"UNEXPECTED FLOW/STEP: flow={flow}, step={step}")
