@@ -19,6 +19,7 @@ Steps (Section 4):
 """
 
 import logging
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
 import anyio
@@ -125,6 +126,8 @@ async def _create_available_application(user_id: str, opportunity_id: str) -> Op
                 "user_id": user_id,
                 "opportunity_id": opportunity_id,
                 "status": "available",
+                # Phase I / Section 5.2: default +2 day reminder (no-response fallback).
+                "next_reminder_at": (datetime.now(timezone.utc) + timedelta(days=2)).isoformat(),
             })
             .execute()
         )

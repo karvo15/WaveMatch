@@ -68,7 +68,7 @@ Small, sequential, individually-testable steps. Each step should be verifiable b
 - [x] Build per-post admin approval (Full-Product-Logic.md Section 16): on submission, check the poster's `requires_post_approval` flag — if `true`, create the opportunity as `pending_approval` and send the admin a preview message with **[Approve Post] / [Reject Post]** buttons (per Section 0's Interaction Type Reference); **Approve** flips status to `active` (Matching Engine trigger deferred to Phase H); **Reject** notifies the poster and leaves the opportunity out of circulation. If the flag is `false` (default), skip this entirely and proceed as already specified above. Since the admin's existing free-text command handler (`approve [id]` / `reject [id]` for poster registration, from Phase F) and this new button-based post-approval both route through the same admin phone number, explicitly confirm the two dispatch paths don't collide.
 - [x] Test end to end: confirm every intermediate step correctly advances (not just the first one) — same dead-end risk as registration, now a 9-step version of it; additionally, confirm both `requires_post_approval = true` and `= false` paths behave correctly for at least one test poster each, and confirm the admin's free-text poster-approval command and the new post-approval buttons don't interfere with each other
 
-> **CURRENT PHASE: Phase I - Core Button Handlers (in progress).** Checked boxes = complete. History in CLAUDE.md.
+> **CURRENT PHASE: Phase J - Ongoing Reminder Cycle (in progress).** Checked boxes = complete. History in CLAUDE.md.
 
 ## Phase H — Matching Engine  [COMPLETE]
 
@@ -79,13 +79,15 @@ Small, sequential, individually-testable steps. Each step should be verifiable b
 
 > **Implementation (done):** `matching.py` (`run_matching_engine`), wired at both trigger points in `poster_flow.py` (direct-post success + admin post-approval); tag intersection done Postgres-side (`user_tags` filtered by `tag_id IN (...)`, embedded `users(phone_number)` join), one `applications` row (`status='available'`) per match, New Match Notification composed in `whatsapp.py:send_new_match_notification` (free-form interactive for now - the single swap point to the pre-approved template once Meta review clears). Verified live: 2 of 3 tagged users matched (correct), non-matching tag + untagged + nonexistent-opportunity cases all handled, all temp fixtures removed. Phase I is next.
 
-## Phase I — Core Button Handlers (Available → Ongoing)
+## Phase I — Core Button Handlers (Available → Ongoing)  [COMPLETE]
 
-- [ ] Handle **Apply Now**: open link, update status to `ongoing`, set `next_reminder_at = +2 days`
-- [ ] Handle **Remind Me Later** (from Available): parse custom time or default to +2 days, keep status `available`
-- [ ] Handle **Ignore**: confirmation warning first (Section 13), then delete the `applications` row
-- [ ] Handle no-response-at-all fallback (defaults to Remind Me Later behavior)
-- [ ] Implement the button/free-text dispatch as a dict of `(status, action): handler` or a Python `match` statement — not nested `if/elif` — per Architecture-Doc.md Section 3B
+- [x] Handle **Apply Now**: open link, update status to `ongoing`, set `next_reminder_at = +2 days`
+- [x] Handle **Remind Me Later** (from Available): parse custom time or default to +2 days, keep status `available`
+- [x] Handle **Ignore**: confirmation warning first (Section 13), then delete the `applications` row
+- [x] Handle no-response-at-all fallback (defaults to Remind Me Later behavior)
+- [x] Implement the button/free-text dispatch as a dict of `(status, action): handler` or a Python `match` statement — not nested `if/elif` — per Architecture-Doc.md Section 3B
+
+> **Implementation (done):** `application_flow.py` (`handle_application_button`, `handle_deletion_confirmation`, `handle_remind_later_time_step`, `_parse_reminder_time`) + wiring in `webhook.py` STEP 6 / STEP 9; the `(status, action)` dispatch is a dict (`_DISPATCH`) per Architecture 3B; the reusable Section 13 confirmation is `send_deletion_confirmation`; the no-response fallback is set at row creation in `matching.py` (`next_reminder_at = now + 2 days`). Verified live against Supabase (temp fixtures, sends stubbed): 28/28 checks passed, 0 fixture leftovers. Phase J is next.
 
 ## Phase J — Ongoing Reminder Cycle
 
