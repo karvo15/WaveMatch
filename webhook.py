@@ -315,7 +315,15 @@ async def receive_webhook(request: Request) -> Dict[str, str]:
             await registration.handle_role_selection(phone_number, payload, "register_poster")
             return {"status": "ok"}
         elif button_id == "find_opportunities":
+            # First-contact role button (Section 1.1) - only ever shown when no user
+            # row exists yet, so this starts a fresh user registration.
             await registration.handle_role_selection(phone_number, payload, "register_user")
+            return {"status": "ok"}
+        elif button_id == "available_apps":
+            # Main-menu "Available Apps" (Section 2) - list the user's matched
+            # opportunities. This used to share the first-contact id above, which
+            # wrongly re-started registration and sent the "personalize" prompt.
+            await poster_flow._handle_available_applications_button(phone_number)
             return {"status": "ok"}
         elif button_id == "my_posts":
             # Show list of poster's opportunities
@@ -347,6 +355,15 @@ async def receive_webhook(request: Request) -> Dict[str, str]:
             # Extract opportunity ID and set up edit flow
             opportunity_id = list_id.split("_", 2)[2]
             await poster_flow._handle_select_post_for_edit(phone_number, opportunity_id)
+            return {"status": "ok"}
+        # Available-Applications list rows (Phase N bullet 1)
+        elif list_id.startswith("avail_open_"):
+            application_id = list_id.split("_", 2)[2]
+            await poster_flow._handle_available_application_open(phone_number, application_id)
+            return {"status": "ok"}
+        elif list_id.startswith("avail_more_"):
+            offset = int(list_id.split("_", 2)[2])
+            await poster_flow._handle_available_applications_button(phone_number, offset=offset)
             return {"status": "ok"}
         # If it's some other interactive we don't recognize, fall through to normal processing
 

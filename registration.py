@@ -195,19 +195,30 @@ async def handle_user_interests_step(phone_number: str, payload: Dict[str, Any],
     try:
         parsed_interests = parse_interests(raw_text)
 
-        # Create user record
-        def _create_user():
-            result = supabase.from_("users").insert({
+        # Get-or-create the user row (idempotent). A plain insert raised 23505
+        # whenever the phone number already existed (e.g. a returning user who
+        # re-entered the registration flow), which surfaced as a generic error.
+        def _get_or_create_user():
+            existing = supabase.from_("users").select("id").eq("phone_number", phone_number).limit(1).execute()
+            if existing.data:
+                return existing.data[0]["id"]
+            created = supabase.from_("users").insert({
                 "phone_number": phone_number,
                 "name": None  # Name collected later if needed
             }).execute()
-            return result
+            return created.data[0]["id"] if created.data else None
 
         async with _db_semaphore:
-            user_result = await anyio.to_thread.run_sync(_create_user)
-        user_id = user_result.data[0]["id"] if user_result.data else None
+            user_id = await anyio.to_thread.run_sync(_get_or_create_user)
 
         if user_id:
+            # Replace any existing interests instead of stacking duplicate rows
+            def _delete_existing_user_tags():
+                return supabase.from_("user_tags").delete().eq("user_id", user_id).execute()
+
+            async with _db_semaphore:
+                await anyio.to_thread.run_sync(_delete_existing_user_tags)
+
             # For each parsed interest, create user_tags junction entries
             for interest in parsed_interests:
                 tag_name = interest["name"]
@@ -489,7 +500,7 @@ async def send_main_menu(phone_number: str, is_returning_user: bool = False, is_
             phone_number,
             body="Welcome back! What would you like to do?",
             buttons=[
-                {"type": "reply", "reply": {"id": "find_opportunities", "title": "📋 Available Apps"}},
+                {"type": "reply", "reply": {"id": "available_apps", "title": "📋 Available Apps"}},
                 {"type": "reply", "reply": {"id": "my_applications", "title": "📁 My Applications"}},
                 {"type": "reply", "reply": {"id": "edit_interests", "title": "⚙️ Edit my interests"}}
             ]
