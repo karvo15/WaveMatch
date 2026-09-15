@@ -16,6 +16,7 @@ from conversation import get_conversation_state, set_conversation_state, clear_c
 import registration  # Import the registration module
 import poster_flow  # Import the poster flow module
 import application_flow  # Phase I: user-side application button handlers
+import my_applications  # Phase M: My Applications lists + the Section 9 add/edit flows
 from whatsapp import send_whatsapp_message, send_whatsapp_buttons
 from database import supabase
 import anyio
@@ -330,8 +331,16 @@ async def receive_webhook(request: Request) -> Dict[str, str]:
             await poster_flow._handle_my_posts_button(phone_number)
             return {"status": "ok"}
         elif button_id == "my_applications":
-            # Show list of user's applications
-            await poster_flow._handle_my_applications_button(phone_number)
+            # Phase M: the three My Applications lists (Section 2)
+            await my_applications.handle_my_applications_button(phone_number)
+            return {"status": "ok"}
+        # Phase M: the user picked which list to open (Section 2)
+        elif button_id.startswith("my_list_"):
+            await my_applications.handle_my_list(phone_number, button_id[len("my_list_"):])
+            return {"status": "ok"}
+        # Phase M: the user picked which field to edit on a tracked item (Section 9.2)
+        elif button_id.startswith("editf|"):
+            await my_applications.handle_edit_field_button(phone_number, button_id)
             return {"status": "ok"}
         elif button_id == "edit_interests":
             # Start edit interests flow
@@ -364,6 +373,32 @@ async def receive_webhook(request: Request) -> Dict[str, str]:
         elif list_id.startswith("avail_more_"):
             offset = int(list_id.split("_", 2)[2])
             await poster_flow._handle_available_applications_button(phone_number, offset=offset)
+            return {"status": "ok"}
+        # Phase M: My Applications rows. The pickers are matched before the plain
+        # item ids -- "my_editpick|" must not be read as "my_edit|".
+        elif list_id.startswith("my_more|"):
+            parts = (list_id.split("|") + ["", "", "0"])[:4]
+            await my_applications.handle_my_list(
+                phone_number, parts[2], offset=int(parts[3] or 0), mode=parts[1] or "open"
+            )
+            return {"status": "ok"}
+        elif list_id.startswith("my_add|"):
+            await my_applications.start_manual_add(phone_number, list_id.split("|", 1)[1])
+            return {"status": "ok"}
+        elif list_id.startswith("my_editpick|"):
+            await my_applications.handle_my_list(phone_number, list_id.split("|", 1)[1], mode="edit")
+            return {"status": "ok"}
+        elif list_id.startswith("my_delpick|"):
+            await my_applications.handle_my_list(phone_number, list_id.split("|", 1)[1], mode="delete")
+            return {"status": "ok"}
+        elif list_id.startswith("my_item|"):
+            await my_applications.handle_item_open(phone_number, list_id.split("|", 1)[1])
+            return {"status": "ok"}
+        elif list_id.startswith("my_edit|"):
+            await my_applications.start_edit_item(phone_number, list_id.split("|", 1)[1])
+            return {"status": "ok"}
+        elif list_id.startswith("my_del|"):
+            await my_applications.start_delete_item(phone_number, list_id.split("|", 1)[1])
             return {"status": "ok"}
         # If it's some other interactive we don't recognize, fall through to normal processing
 
@@ -445,6 +480,16 @@ async def receive_webhook(request: Request) -> Dict[str, str]:
         elif flow == "outcome_event_date" and step == "awaiting_event_date":
             # Phase K (Section 8.3): free-text event start date after a "Yes" outcome.
             await application_flow.handle_outcome_event_date_step(phone_number, payload, conversation_state)
+        elif flow == my_applications.MANUAL_ADD_FLOW and step == "awaiting_manual_title":
+            # Phase M (Section 9.1): title -> description -> the stage's date, then create.
+            await my_applications.handle_manual_title_step(phone_number, payload, conversation_state)
+        elif flow == my_applications.MANUAL_ADD_FLOW and step == "awaiting_manual_description":
+            await my_applications.handle_manual_description_step(phone_number, payload, conversation_state)
+        elif flow == my_applications.MANUAL_ADD_FLOW and step == "awaiting_manual_date":
+            await my_applications.handle_manual_date_step(phone_number, payload, conversation_state)
+        elif flow == my_applications.EDIT_ITEM_FLOW and step == "awaiting_edit_value":
+            # Phase M (Section 9.2): the new value for the field the user picked.
+            await my_applications.handle_edit_value_step(phone_number, payload, conversation_state)
         else:
             # Log unexpected flow/step combination for debugging
             logger.warning(f"UNEXPECTED FLOW/STEP: flow={flow}, step={step}")

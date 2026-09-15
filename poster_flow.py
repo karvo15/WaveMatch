@@ -880,15 +880,12 @@ async def _handle_my_posts_button(phone_number: str) -> None:
     )
 
 # ============================================================
-# MY APPLICATIONS BUTTON -- Stub (Phase N builds real list views)
+# MY APPLICATIONS -- moved to my_applications.py
 # ============================================================
-
-async def _handle_my_applications_button(phone_number: str) -> None:
-    """Stub -- Phase N builds the real My Applications list views."""
-    await send_whatsapp_message(
-        phone_number,
-        body="\U0001f4c1 My Applications feature is coming soon! You'll be able to view your Ongoing, Under Review, and Scheduled applications here."
-    )
+# The stub that used to live here was replaced in Phase M by the real Section 2 lists
+# (`handle_my_applications_button` / `handle_my_list`) plus the Section 9.1 / 9.2
+# add-and-edit flows, all in my_applications.py -- they need the lists and the flows
+# to sit together, because Section 9.1's entry point lives inside a list.
 
 
 # ============================================================
