@@ -19,7 +19,7 @@ Steps (Section 4):
 """
 
 import logging
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
 import anyio
@@ -27,6 +27,9 @@ from dotenv import load_dotenv
 
 from conversation import _db_semaphore
 from database import supabase
+# "Today" in the product timezone, and the DB-DATE coercion it needs. Imported rather than
+# re-derived so this module can't disagree with the scheduler about what "today" means.
+from scheduler import _as_date, _today
 from whatsapp import send_new_match_notification
 
 # Load environment variables
@@ -206,3 +209,143 @@ async def run_matching_engine(opportunity_id: str) -> int:
         f"MATCHING_DONE: opportunity_id={opportunity_id} matched={matched_count}"
     )
     return matched_count
+
+
+# ============================================================
+# USER-SIDE BACK-FILL (Full-Product-Logic.md Section 1.3 / 2)
+# ============================================================
+
+async def _get_user_tag_ids(user_id: str) -> List[str]:
+    """Return the tag ids a user is subscribed to."""
+    def _get():
+        result = (
+            supabase.from_("user_tags")
+            .select("tag_id")
+            .eq("user_id", user_id)
+            .execute()
+        )
+        return [row["tag_id"] for row in (result.data or [])]
+
+    async with _db_semaphore:
+        return await anyio.to_thread.run_sync(_get)
+
+
+async def _get_live_opportunity_ids_for_tags(tag_ids: List[str]) -> List[str]:
+    """
+    Return the ids of the opportunities a user with these tags should be offered.
+
+    "Should be offered" is stricter than "tags intersect":
+      - `status = active` only. `pending_approval` isn't approved yet, and `expired` /
+        `rejected` must never reach a user.
+      - the deadline hasn't already passed. A user registering today must not be handed
+        an application link that closed last week.
+
+    The tag intersection is done Postgres-side, the same way `_get_matched_users` does it.
+    """
+    def _get():
+        result = (
+            supabase.from_("opportunity_tags")
+            .select("opportunity_id, opportunities(status, application_deadline, created_at)")
+            .in_("tag_id", tag_ids)
+            .execute()
+        )
+        return result.data or []
+
+    async with _db_semaphore:
+        rows = await anyio.to_thread.run_sync(_get)
+
+    today = _today()
+    candidates: Dict[str, str] = {}
+    for row in rows:
+        opportunity_id = row.get("opportunity_id")
+        opportunity = row.get("opportunities") or {}
+        if not opportunity_id or opportunity_id in candidates:
+            continue
+        if (opportunity.get("status") or "") != "active":
+            continue
+        deadline = _as_date(opportunity.get("application_deadline"))
+        if deadline and deadline < today:
+            continue
+        # Oldest first, so the user's Available Apps list reads chronologically.
+        candidates[opportunity_id] = str(opportunity.get("created_at") or "")
+
+    return [oid for oid, _ in sorted(candidates.items(), key=lambda pair: pair[1])]
+
+
+async def _backfill_available_applications(user_id: str, opportunity_ids: List[str]) -> int:
+    """
+    Create the `applications` rows this user is missing, and report how many were created.
+
+    `applications` has no unique constraint on (user_id, opportunity_id), so the existing
+    rows are read and skipped first -- otherwise every future "Edit my interests" would
+    stack another duplicate row for the same opportunity.
+    """
+    def _run():
+        existing = (
+            supabase.from_("applications")
+            .select("opportunity_id")
+            .eq("user_id", user_id)
+            .execute()
+        ).data or []
+        already_have = {row["opportunity_id"] for row in existing if row.get("opportunity_id")}
+
+        missing = [oid for oid in opportunity_ids if oid not in already_have]
+        if not missing:
+            return 0
+
+        supabase.from_("applications").insert([
+            {
+                "user_id": user_id,
+                "opportunity_id": opportunity_id,
+                "status": "available",
+                # Same no-response default the post-time engine sets (Phase I / Section 5.2).
+                "next_reminder_at": (datetime.now(timezone.utc) + timedelta(days=2)).isoformat(),
+            }
+            for opportunity_id in missing
+        ]).execute()
+        return len(missing)
+
+    async with _db_semaphore:
+        return await anyio.to_thread.run_sync(_run)
+
+
+async def run_matching_engine_for_user(user_id: str) -> int:
+    """
+    The user-side counterpart of `run_matching_engine`: back-fill this user's matches.
+
+    Section 4's engine fires when an opportunity goes *live*, which leaves a hole: an
+    opportunity posted before a user registered had no `applications` row for them, and
+    the Available Apps list reads those rows -- so the user was told nothing matched even
+    when every tag matched, permanently (the post-time engine has already run and won't
+    run again for that opportunity). This is the other half of the same engine, called
+    whenever interests are saved: at registration and on every "Edit my interests".
+
+    Deliberately sends **no** New Match Notifications. Section 1.3 step 3 / the example in
+    Message-Flow-Examples.md Section 3 expect exactly one reply at that moment (the tag
+    confirmation + Main Menu), and a user whose interests match six live opportunities
+    would otherwise be buried in six interactive messages on the spot. The rows are what
+    Available Apps lists, and opening a row re-sends the Phase H notification anyway.
+
+    Returns the number of rows created. Never raises for one bad opportunity: the caller
+    is mid-registration and a matching problem must not cost the user their interests.
+    """
+    try:
+        tag_ids = await _get_user_tag_ids(user_id)
+        if not tag_ids:
+            logger.info(f"USER_MATCHING_SKIP: user_id={user_id} has no interests")
+            return 0
+
+        opportunity_ids = await _get_live_opportunity_ids_for_tags(tag_ids)
+        if not opportunity_ids:
+            logger.info(f"USER_MATCHING_DONE: user_id={user_id} live_matches=0 created=0")
+            return 0
+
+        created = await _backfill_available_applications(user_id, opportunity_ids)
+        logger.info(
+            f"USER_MATCHING_DONE: user_id={user_id} "
+            f"live_matches={len(opportunity_ids)} created={created}"
+        )
+        return created
+    except Exception:
+        logger.exception(f"USER_MATCHING_FAILED: user_id={user_id}")
+        return 0

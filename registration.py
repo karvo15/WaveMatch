@@ -11,6 +11,7 @@ from whatsapp import send_whatsapp_buttons, send_whatsapp_message
 from conversation import get_conversation_state, set_conversation_state, clear_conversation_state, _db_semaphore
 from database import supabase
 import anyio
+import matching  # Phase N follow-up: back-fill a user's existing matches on interest save
 import tags  # Phase N: the one implementation of Section 10.2's layered matching
 from tags import FIXED_CATEGORIES, parse_interests  # re-exported for existing callers
 
@@ -192,6 +193,11 @@ async def handle_user_interests_step(phone_number: str, payload: Dict[str, Any],
             # and poster tags, so the two can't drift apart.
             await tags.link_tags("user_tags", "user_id", user_id, parsed_interests)
 
+            # Phase N follow-up: back-fill the matches that already exist. Section 4's
+            # engine only fires when an opportunity goes live, so a user who saved their
+            # interests afterwards would otherwise never see it.
+            await _backfill_matches(user_id, phone_number)
+
         # Clear conversation state (flow complete)
         await clear_conversation_state(phone_number)
 
@@ -212,6 +218,21 @@ async def handle_user_interests_step(phone_number: str, payload: Dict[str, Any],
             )
         except Exception:
             logger.exception(f"USER_INTERESTS_STEP_NOTIFY_FAILED: phone_number={phone_number}")
+
+
+async def _backfill_matches(user_id: str, phone_number: str) -> None:
+    """
+    Hand a user the matches that already exist for their interests.
+
+    Best-effort on purpose: their interests are already saved by the time this runs, so a
+    matching problem must never surface as "something went wrong while saving your
+    interests" and must never keep them from reaching the Main Menu.
+    """
+    try:
+        matched = await matching.run_matching_engine_for_user(user_id)
+        logger.info(f"USER_INTERESTS_MATCHED: phone_number={phone_number} matched={matched}")
+    except Exception:
+        logger.exception(f"USER_INTERESTS_MATCHING_FAILED: phone_number={phone_number}")
 
 
 async def handle_interests_edit_start(phone_number: str) -> None:
@@ -279,6 +300,11 @@ async def handle_interests_edit_step(phone_number: str, payload: Dict[str, Any],
             # Phase N: one shared write path (tags.link_tags) used by both user interests
             # and poster tags, so the two can't drift apart.
             await tags.link_tags("user_tags", "user_id", user_id, parsed_interests)
+
+            # Phase N follow-up: back-fill the matches that already exist. Section 4's
+            # engine only fires when an opportunity goes live, so a user who saved their
+            # interests afterwards would otherwise never see it.
+            await _backfill_matches(user_id, phone_number)
 
         # Clear conversation state (flow complete)
         await clear_conversation_state(phone_number)
