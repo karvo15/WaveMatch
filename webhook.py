@@ -151,6 +151,48 @@ async def handle_admin_command(phone_number: str, payload: Dict[str, Any]) -> No
         await send_whatsapp_message(phone_number, body=admin_confirmation)
 
 
+def extract_reply_ids(message_obj: Dict[str, Any]) -> tuple:
+    """
+    Normalise every inbound reply shape WhatsApp can send into (button_id, list_id).
+
+    There are three, and they are NOT interchangeable:
+
+      1. free-form interactive button tap (what our own sends produce today):
+             {"type": "interactive",
+              "interactive": {"button_reply": {"id": "apply_now_<uuid>"}}}
+      2. free-form list row tap:
+             {"type": "interactive",
+              "interactive": {"list_reply": {"id": "avail_open_<uuid>"}}}
+      3. quick-reply tap coming from a pre-approved **Message Template**:
+             {"type": "button", "button": {"payload": "apply_now_<uuid>"}}
+
+    Shape 3 only appears once a proactive send moves to a template (Platform-Constraints.md
+    Section 1), and it carries no `interactive` key at all -- which is why, before this
+    normalisation, a template tap fell straight through the button dispatch into the
+    conversation-state router and was silently treated as stray text.
+
+    Templates must therefore be built with the same stateless ids the interactive buttons
+    already use (e.g. "apply_now_<application uuid>"). When a template defines no payload,
+    Meta echoes the button text instead, so that is the fallback -- a tap is never dropped.
+    List replies cannot come from a template (templates cannot send list messages), so
+    shape 2 is unchanged.
+
+    Plain text -- including the admin's typed "approve_post <id>" commands -- deliberately
+    returns ("", ""): it is not a reply to a button, and belongs to the state router.
+    """
+    interactive = message_obj.get("interactive") or {}
+    if "button_reply" in interactive:
+        return ((interactive["button_reply"] or {}).get("id") or ""), ""
+    if "list_reply" in interactive:
+        return "", ((interactive["list_reply"] or {}).get("id") or "")
+
+    if message_obj.get("type") == "button":
+        button = message_obj.get("button") or {}
+        return (button.get("payload") or button.get("text") or ""), ""
+
+    return "", ""
+
+
 async def receive_webhook(request: Request) -> Dict[str, str]:
     """
     Handle incoming webhook payloads (POST request) with signature verification.
@@ -264,27 +306,13 @@ async def receive_webhook(request: Request) -> Dict[str, str]:
 
     # STEP 6: BUTTON TAP DETECTION - check for Poster/User button replies to welcome message
     # This handles the case where we sent welcome buttons, user tapped one, and now we need to set initial state
-    if ("entry" in payload and len(payload["entry"]) > 0 and
-        "changes" in payload["entry"][0] and len(payload["entry"][0]["changes"]) > 0 and
-        "value" in payload["entry"][0]["changes"][0] and
-        "messages" in payload["entry"][0]["changes"][0]["value"] and
-        len(payload["entry"][0]["changes"][0]["value"]["messages"]) > 0 and
-        "interactive" in payload["entry"][0]["changes"][0]["value"]["messages"][0] and
-        ("button_reply" in payload["entry"][0]["changes"][0]["value"]["messages"][0]["interactive"] or
-         "list_reply" in payload["entry"][0]["changes"][0]["value"]["messages"][0]["interactive"])):
+    # The guard above already proved the shape, so this can read it directly. Both the
+    # free-form interactive reply and the template quick-reply land here as the same
+    # stateless id, so every branch below works whichever one the user actually tapped.
+    message_obj = payload["entry"][0]["changes"][0]["value"]["messages"][0]
+    button_id, list_id = extract_reply_ids(message_obj)
+    if button_id or list_id:
 
-        # Extract interactive ID (button_reply or list_reply)
-        interactive_obj = payload["entry"][0]["changes"][0]["value"]["messages"][0]["interactive"]
-        if "button_reply" in interactive_obj:
-            button_id = interactive_obj["button_reply"]["id"]
-            list_id = ""
-        elif "list_reply" in interactive_obj:
-            list_id = interactive_obj["list_reply"]["id"]
-            button_id = ""
-        else:
-            # Neither button nor list reply, fall through
-            button_id = ""
-            list_id = ""
         if button_id == "post_opportunities":
             # Poster-approval gate: check if poster is approved before allowing to post
             def _get_poster_status():
