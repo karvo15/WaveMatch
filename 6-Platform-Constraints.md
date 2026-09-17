@@ -25,6 +25,8 @@ Nearly every proactive message this bot sends is, by definition, outside a live 
 ### Practical implication for the build
 Design the messaging layer so every proactive message is sent via a **named template function**, not raw text — this makes it trivial to swap in the approved template name/structure once templates clear review, without restructuring the codebase later.
 
+**The register of all 11 templates this product needs** - each one's name, parameters, body, the code path it is sent from, and which message types deliberately need no template at all - lives in `9-Message-Templates.md`.
+
 ### Template categories
 Templates are submitted under categories: **UTILITY** or **MARKETING**. Reminders/notifications for this product should be UTILITY category. Submit templates for approval as early as possible in the build — approval isn't always instant, and building/testing can proceed in parallel using direct API calls to your own verified test number in the meantime (since messaging your own confirmed-owned number for testing doesn't require the same constraints, as you're both the business and a legitimate confirmed contact).
 
