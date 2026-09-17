@@ -140,7 +140,7 @@ Small, sequential, individually-testable steps. Each step should be verifiable b
 
 ## Phase P — Submission Prep (parallel, not sequential — start early)
 
-- [ ] Draft and submit the 5 **user-facing** message templates for Meta approval (do this as early as possible, in parallel with Phase C-D, since approval isn't instant). The full register of all 11 templates - name, parameters, body, and the code path each is sent from - is `9-Message-Templates.md`; the 6 admin- and poster-facing ones are already drafted and submitted.
+- [x] Draft and submit the 5 **user-facing** message templates for Meta approval (do this as early as possible, in parallel with Phase C-D, since approval isn't instant). The full register of all 11 templates - name, parameters, body, and the code path each is sent from - is `9-Message-Templates.md`; the 6 admin- and poster-facing ones are already drafted and submitted. **All 11 are now approved by Meta** (confirm the approved bodies of Templates 1-5 are captured in the register before wiring them).
 - [ ] Collect real usage screenshots/data once Phase O testing has run for a few days
 - [ ] Record the demo video
 - [ ] Write the final competition submission using the Problem Statement, Product Plan, and real usage data

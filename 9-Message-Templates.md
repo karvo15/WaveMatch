@@ -4,14 +4,14 @@
 
 Templates exist because of one hard platform rule (`6-Platform-Constraints.md` Section 1): a business may only send **free-form** messages within **24 hours of that user's last message**. Every proactive message this bot sends can land outside that window, so it needs a pre-approved template. Replies to something the user just did are *always* in-window and deliberately need no template (Section 5 lists those).
 
-All 11 are submitted as **UTILITY** category, language **en_US**, and each must be approved before it can be sent outside the window.
+All 11 are approved as **UTILITY** category, language **en_US**, and each must be approved before it can be sent outside the window.
 
 **Status legend**
 
 | Status | Meaning |
 |---|---|
-| TO DRAFT | Not yet submitted to Meta. The body shown is the proposed wording, derived from what the code composes today. |
-| SUBMITTED | Already in WhatsApp Manager, drafted by the team. The body shown is quoted verbatim. |
+| APPROVED | Live in WhatsApp Manager and approved by Meta. The body shown is quoted verbatim. |
+| PROVISIONAL | Approved, but the body/parameters shown were **derived from the code, not captured from Meta**. Treat them as placeholders until replaced with the approved text. |
 
 There are **11 templates**: the original 5 user-facing ones (Templates 1-5, derived from `3-Full-Product-Logic.md` and `4-Message-Flow-Examples.md`), plus the 6 admin- and poster-facing ones (Templates 7-12). *The team numbering skips 6 - an artefact of an earlier miscount; 1-5 + 7-12 = 11.*
 
@@ -21,25 +21,25 @@ There are **11 templates**: the original 5 user-facing ones (Templates 1-5, deri
 
 | # | Template name | Recipient | Params | Buttons | Sent from | Status |
 |---|---|---|---|---|---|---|
-| 1 | `new_match_notification` | matched user | 5 | 3 quick replies | `whatsapp.py:271` (called from `matching.py:186`, `poster_flow.py:984`, `scheduler.py:330`) | TO DRAFT |
-| 2 | `deadline_heads_up` | user tracking it | 2 | none | `whatsapp.py:407` (called from `scheduler.py:270`) | TO DRAFT |
-| 3 | `ongoing_checkin` | user, Ongoing | 2 | 3 quick replies | `whatsapp.py:328` (called from `scheduler.py:351`, `my_applications.py:280`) | TO DRAFT |
-| 4 | `outcome_check` | user, Under Review | 1 | 3 quick replies | `whatsapp.py:371` (called from `scheduler.py:342`, `my_applications.py:284`) | TO DRAFT |
-| 5 | `opportunity_updated` | user tracking it | 3 | none | `whatsapp.py:428` (called from `propagation.py:292`) | TO DRAFT |
-| 7 | `poster_registration_pending` | **admin** | 3 | none | `registration.py:135` | SUBMITTED |
-| 8 | `poster_approved` | poster | 0 | none | `webhook.py:136` | SUBMITTED |
-| 9 | `poster_rejected` | poster | 0 | none | `webhook.py:144` | SUBMITTED |
-| 10 | `post_pending_approval` | **admin** | 7 | none | `poster_flow.py:759` | SUBMITTED |
-| 11 | `post_approved` | poster | 1 | none | `poster_flow.py:1109` | SUBMITTED |
-| 12 | `post_rejected` | poster | 1 | none | `poster_flow.py:1119` | SUBMITTED |
+| 1 | `new_match_notification` | matched user | 5 | 3 quick replies | `whatsapp.py:271` (called from `matching.py:186`, `poster_flow.py:984`, `scheduler.py:330`) | APPROVED (provisional body) |
+| 2 | `deadline_heads_up` | user tracking it | 2 | none | `whatsapp.py:407` (called from `scheduler.py:270`) | APPROVED (provisional body) |
+| 3 | `ongoing_checkin` | user, Ongoing | 2 | 3 quick replies | `whatsapp.py:328` (called from `scheduler.py:351`, `my_applications.py:280`) | APPROVED (provisional body) |
+| 4 | `outcome_check` | user, Under Review | 1 | 3 quick replies | `whatsapp.py:371` (called from `scheduler.py:342`, `my_applications.py:284`) | APPROVED (provisional body) |
+| 5 | `opportunity_updated` | user tracking it | 3 | none | `whatsapp.py:428` (called from `propagation.py:292`) | APPROVED (provisional body) |
+| 7 | `poster_registration_pending` | **admin** | 3 | none | `registration.py:135` | APPROVED |
+| 8 | `poster_approved` | poster | 0 | none | `webhook.py:136` | APPROVED |
+| 9 | `poster_rejected` | poster | 0 | none | `webhook.py:144` | APPROVED |
+| 10 | `post_pending_approval` | **admin** | 7 | none | `poster_flow.py:759` | APPROVED |
+| 11 | `post_approved` | poster | 1 | none | `poster_flow.py:1109` | APPROVED |
+| 12 | `post_rejected` | poster | 1 | none | `poster_flow.py:1119` | APPROVED |
 
 **Why the six are not optional.** Templates 7 and 10 go to the **admin's** personal number, which has its own separate 24-hour window from every poster's - so they need templates for exactly the reason the user-facing ones do. And a poster may register days before the admin acts on it, so 8, 9, 11 and 12 need them too. None of the six can be dropped.
 
 ---
 
-## 2. Templates 1-5: user-facing (TO DRAFT)
+## 2. Templates 1-5: user-facing (APPROVED - bodies PROVISIONAL)
 
-These are not quoted from anywhere - the code composes them today as free-form interactive messages, and what follows is the proposed template form of each.
+> **All five of these are approved and live in Meta.** What follows, however, was *derived from the code* (`whatsapp.py`) before the approval status was known, so **the bodies, parameter lists and button labels here are placeholders - do not wire against them.** The approved definitions must be captured verbatim from WhatsApp Manager and dropped in. What matters most is the **parameter count and order** (a mismatch means the send errors out, or the wrong value lands in the wrong slot) and the **button labels/payloads**. Until then this section is a checklist of what to capture, not a spec.
 
 **Drafting constraint:** templates have **no conditionals**. Where the code includes a line only sometimes, the template must either always carry it or take it as a parameter that may be sent empty (confirm at submission time that Meta accepts an empty parameter value; if it does not, that message needs two template variants).
 
@@ -374,11 +374,11 @@ Two architecture decisions already removed some candidates from this space: tag/
 
 ## 6. Open items
 
-| # | Item | Owner decision needed |
+| # | Item | Status |
 |---|---|---|
-| 1 | Template 10 needs new admin command parsing (short id, `approve_post` / `reject_post`) and currently fails silently | Build it, and add a "did not catch that" reply |
-| 2 | Template 11 drops the match count required by Section 4 | Resubmit with a count parameter, or accept the loss |
-| 3 | Template 8 has no button (two taps instead of one) | Accept, or resubmit with a `post_opportunities` quick reply |
-| 4 | Whether template quick-reply buttons can carry a custom payload | Confirm in WhatsApp Manager (Section 4) |
-| 5 | Templates 1-5 still need drafting and submission | Draft from Section 2 (checklist Phase P) |
-| 6 | Are Templates 7-12 approved, or still in review? | Confirmed by the team |
+| 1 | **Capture the approved definitions of Templates 1-5 verbatim** - parameter count, parameter order, body text, button labels and payloads - and replace the placeholders in Section 2 | OPEN - blocks wiring Templates 1-5 |
+| 2 | Whether a template's quick-reply button can carry a custom payload | OPEN - confirm in WhatsApp Manager (Section 4). If it cannot, add the status-based row resolver described there |
+| 3 | Template 10 needs new admin command parsing (short id, `approve_post` / `reject_post`), and `handle_admin_command` currently fails silently on anything it does not recognise | TO BUILD - plus a "did not catch that" reply |
+| 4 | Template 11 drops the match count required by `3-Full-Product-Logic.md` Section 4 | RESOLVED - accepted. Wire it as the single send, which also collapses the current "No students match those tags yet" branch |
+| 5 | Template 8 has no button, so an approved poster gets started in two taps instead of one | RESOLVED - keep as it is |
+| 6 | Approval status | RESOLVED - all 11 are approved |
