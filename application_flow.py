@@ -326,6 +326,9 @@ async def _handle_apply_now(phone_number: str, application_id: str, application:
             "next_reminder_at": (
                 datetime.now(timezone.utc) + timedelta(days=REMINDER_DEFAULT_DAYS)
             ).isoformat(),
+            # Applying resets the reminder onto the bot's own rhythm, so this row is no
+            # longer an exact-time one (see scheduler.run_exact_reminder_pass).
+            "reminder_is_exact": False,
         },
     )
 
@@ -381,7 +384,15 @@ async def _handle_finished_application(phone_number: str, application_id: str, a
         when = datetime.now(timezone.utc) + timedelta(days=3)
         body = "Nice work finishing it! I'll check back in a few days."
 
-    await _update_application(application_id, {"status": "under_review", "next_reminder_at": when.isoformat()})
+    await _update_application(
+        application_id,
+        {
+            "status": "under_review",
+            "next_reminder_at": when.isoformat(),
+            # The result-date rule is the bot's own schedule, not a time the user picked.
+            "reminder_is_exact": False,
+        },
+    )
     await send_whatsapp_message(phone_number, body=body)
     logger.info(
         f"FINISHED_APPLICATION_OK: phone_number={phone_number} application_id={application_id} "
@@ -458,7 +469,11 @@ async def _handle_outcome_waiting(phone_number: str, application_id: str, applic
     when = datetime.now(timezone.utc) + timedelta(days=OUTCOME_WAITING_DAYS)
     await _update_application(
         application_id,
-        {"outcome": "waiting", "next_reminder_at": when.isoformat()},
+        {
+            "outcome": "waiting",
+            "next_reminder_at": when.isoformat(),
+            "reminder_is_exact": False,
+        },
     )
     await send_whatsapp_message(phone_number, body="No worries, I'll check back in 3 days.")
     logger.info(
@@ -609,11 +624,19 @@ async def handle_remind_later_time_step(
         return
 
     when, human = _parse_reminder_time(text)
-    await _update_application(application_id, {"next_reminder_at": when.isoformat()})
+    # Only a time we genuinely understood is an EXACT-time reminder -- the one
+    # scheduler.run_exact_reminder_pass has to serve at that moment. "default", an empty
+    # reply, and anything unparseable all fall back to +2 days, which is a normal
+    # bot-scheduled reminder and stays on the daily rhythm (Section 5.2).
+    exact = _parse_strict_time(text) is not None
+    await _update_application(
+        application_id,
+        {"next_reminder_at": when.isoformat(), "reminder_is_exact": exact},
+    )
     await clear_conversation_state(phone_number)
     logger.info(
         f"REMIND_LATER_SET: phone_number={phone_number} application_id={application_id} "
-        f"next_reminder_at={when.isoformat()}"
+        f"next_reminder_at={when.isoformat()} exact={exact} text={text!r}"
     )
     await send_whatsapp_message(phone_number, body=f"Got it \u2014 I'll remind you {human}.")
 

@@ -114,6 +114,17 @@ Small, sequential, individually-testable steps. Each step should be verifiable b
 - [x] Implement the Reminder Batching pass (max 2/day per user, sorted by nearest deadline, re-sorted fresh each day)
 - [x] Implement the Result-Check pass (fires outcome checks per Phase K logic)
 - [x] Test the scheduler manually (call the job function directly, on-demand, from a temporary route or script) before relying on actual APScheduler timing
+- [x] Drive the daily pass from two places -- the in-process APScheduler job **and** a protected
+      `POST /internal/run-scheduler` endpoint for a Render Cron Job -- with a `scheduler_runs`
+      marker table so exactly one of them runs a given day (the free tier spins an idle service
+      down 15 minutes after the last message, which is how a day's run was being lost silently)
+- [x] Add a startup catch-up (`run_catchup_daily_scheduler()` on boot) so a day missed while the
+      service slept still happens on the first wake-up
+- [x] Serve Section 14.2 exact-time reminders ("in 1 hour") from their own every-few-minutes pass,
+      keyed on the new `applications.reminder_is_exact` flag, because a daily job can never honour a
+      user-chosen time
+- [x] Set `INTERNAL_TICK_SECRET` in Render and point a Render Cron Job at
+      `POST /internal/run-scheduler` (x-tick-secret header) every 10 minutes
 
 ## Phase M — Edit Propagation & Manual Tracking
 
