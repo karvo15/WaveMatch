@@ -115,6 +115,12 @@ CREATE TABLE applications (
     custom_description TEXT,
     status application_status NOT NULL DEFAULT 'available',
     next_reminder_at TIMESTAMPTZ,
+    -- true ONLY when the user picked the reminder time themselves (Section 14.2:
+    -- "in 1 hour", "in 5 hours", "Sept 18"). False for every reminder the bot
+    -- schedules on its own (+2 days, result_date + 1, the 3-day outcome recheck).
+    -- run_exact_reminder_pass serves the true rows at the time asked; the daily pass
+    -- keeps serving the rest under Section 7.3's batching. Cleared once either sends.
+    reminder_is_exact BOOLEAN NOT NULL DEFAULT false,
     reminder_interval_days INT NOT NULL DEFAULT 2,
     deadline_heads_up_sent BOOLEAN NOT NULL DEFAULT false,
     outcome application_outcome,
@@ -133,6 +139,9 @@ CREATE TABLE applications (
 -- Indexes to support the daily scheduler's queries efficiently
 CREATE INDEX idx_applications_next_reminder ON applications (next_reminder_at) WHERE next_reminder_at IS NOT NULL;
 CREATE INDEX idx_applications_status ON applications (status);
+-- Partial index for the fine-grained exact-time pass: cheap, because it only ever
+-- covers rows whose owner asked for a specific time.
+CREATE INDEX idx_applications_exact_reminder ON applications (next_reminder_at) WHERE reminder_is_exact;
 CREATE INDEX idx_applications_user_status ON applications (user_id, status);
 CREATE INDEX idx_opportunities_deadline ON opportunities (application_deadline);
 
@@ -151,6 +160,20 @@ FROM applications a
 LEFT JOIN opportunities o ON a.opportunity_id = o.id;
 
 -- ============================================================
+-- SCHEDULER RUNS (one row per calendar day the daily pass completed)
+-- ============================================================
+-- The daily pass is driven from two places: the in-process APScheduler job (which
+-- only exists while the service is awake) and the protected POST /internal/run-scheduler
+-- endpoint a Render Cron Job calls. This table is what makes both safe on the same day:
+-- whichever runs first inserts the day and the other stands down. Without it a service
+-- that slept through the scheduled hour would either run the day twice on its first
+-- wake-up or skip the day entirely — the bug this table exists for.
+CREATE TABLE scheduler_runs (
+    run_date DATE PRIMARY KEY,
+    ran_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- ============================================================
 -- ROW LEVEL SECURITY (safety net — backend uses service_role and bypasses this)
 -- ============================================================
 ALTER TABLE users ENABLE ROW LEVEL SECURITY;
@@ -161,10 +184,27 @@ ALTER TABLE conversation_states ENABLE ROW LEVEL SECURITY;
 ALTER TABLE tags ENABLE ROW LEVEL SECURITY;
 ALTER TABLE user_tags ENABLE ROW LEVEL SECURITY;
 ALTER TABLE opportunity_tags ENABLE ROW LEVEL SECURITY;
+ALTER TABLE scheduler_runs ENABLE ROW LEVEL SECURITY;
 
 -- No public policies are defined — by default, RLS with no policies
 -- blocks all access via the anon key. Only the service_role key
 -- (used exclusively by the backend server) can read/write.
+
+-- ============================================================
+-- MIGRATIONS (run these against an already-created database)
+-- ============================================================
+-- Exact-time reminders (Section 14.2 "in 1 hour" / "in 5 hours") need their own
+-- column so the daily batching pass and the fine-grained pass never fight over a row.
+ALTER TABLE applications ADD COLUMN IF NOT EXISTS reminder_is_exact BOOLEAN NOT NULL DEFAULT false;
+CREATE INDEX IF NOT EXISTS idx_applications_exact_reminder ON applications (next_reminder_at) WHERE reminder_is_exact;
+
+-- Daily-pass marker, so the in-process job and the Render Cron endpoint can never
+-- both run (or both skip) the same day.
+CREATE TABLE IF NOT EXISTS scheduler_runs (
+    run_date DATE PRIMARY KEY,
+    ran_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+ALTER TABLE scheduler_runs ENABLE ROW LEVEL SECURITY;
 
 -- ============================================================
 -- SEED: starter fixed tags

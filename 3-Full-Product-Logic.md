@@ -196,6 +196,15 @@ For all applications where `next_reminder_at <= today`, group by `user_id`.
 - If a user has **2 or fewer** reminders due today, send all of them.
 - If a user has **more than 2** due today, sort those due-today reminders by **nearest `application_deadline`** (soonest deadline first), send only the **top 2**, and push the rest to `next_reminder_at = tomorrow`.
 - This re-sorting happens **fresh every day** — an application that got pushed yesterday is not prioritized today just because it's now "more overdue." Only deadline proximity matters in the sort.
+- **Exact-time reminders (Section 14.2) are excluded from this batching.** When the user picks
+  the time themselves ("in 1 hour", "in 5 hours"), the row is marked `reminder_is_exact = true`
+  and served by its own pass, which runs every few minutes, so the chosen time is actually
+  honoured -- a once-a-day job cannot send anything "in 1 hour". The 2-per-day cap and the
+  nearest-deadline sort above apply to the reminders *the bot* schedules; a time the user
+  explicitly asked for is neither batched nor capped. Once such a reminder is sent, the flag
+  clears and the row returns to the normal rhythm. If the fine-grained pass is not running at
+  all (cron missing or disabled), the daily pass picks an exact row up once it is more than a
+  day overdue, so a user-chosen reminder can never be silently lost.
 
 ### 7.4 Result-Check Pass
 For any application in `under_review` status:

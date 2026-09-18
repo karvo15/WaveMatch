@@ -34,7 +34,7 @@ Database (Postgres via Supabase)
 - Database client: **`supabase-py`** (the Python equivalent of `supabase-js` — same Supabase project, same URL, same `service_role` key, same schema).
 - Validation: **Pydantic** — every incoming webhook payload and every outgoing message gets a Pydantic model, so malformed data fails loudly at the boundary instead of causing a confusing crash three functions deep.
 - HTTP calls out to the Graph API: **`httpx`** (async-friendly; use `AsyncClient`, not `requests`, so calls to Meta don't block the event loop while a webhook is also trying to come in).
-- Scheduler: **APScheduler** running inside the same FastAPI process (or a Render Cron Job hitting a protected `/internal/run-scheduler` endpoint — see Section 5 for the tradeoff), replacing the originally-planned Node cron job.
+- Scheduler: **APScheduler** inside the same FastAPI process **and** a Render Cron Job hitting the protected `POST /internal/run-scheduler` endpoint — see Section 5 for the tradeoff), replacing the originally-planned Node cron job.
 - Hosting: **Render**, free tier — unchanged.
 
 ### Why this combination, in plain terms
@@ -89,10 +89,21 @@ Handles every user interaction. Central dispatcher based on `(current_status, bu
    - **Batching rule:** group by `user_id`. If more than 2 are due today, sort by nearest `application_deadline`, send the top 2, push the rest to `next_reminder_at = tomorrow`. Re-evaluate this sort fresh each day.
 4. **Result-check pass:** find `under_review` applications where `today = result_date + 1 day` (or no result_date and `next_reminder_at <= today`) → send Yes/No/Waiting prompt.
 
-- **Concept for Claude Code — two valid options, pick one deliberately, don't mix them:**
-  1. **In-process APScheduler**: add `apscheduler` as a dependency, register a daily job inside the FastAPI app's startup event. Simple, no extra infra — but the job only runs while the app is actually awake, and Render's free tier can spin down an idle service, which could silently skip a day's run.
-  2. **Render Cron Job hitting an endpoint**: build a `POST /internal/run-scheduler` route (protected by a shared secret header, not open to the public internet), and configure a Render Cron Job to call it daily. More reliable against spin-down, slightly more setup.
-  - Given this project's scale and the Sept 5 deadline, **Option 1 (APScheduler) is the pragmatic choice** — simpler to build and debug — but note the spin-down risk if the free-tier service goes idle for long stretches during testing.
+- **Resolved (was: "two valid options, pick one") -- now both drive the same passes:**
+  1. **In-process APScheduler** (option 1): registers the daily job and the fine-grained
+     exact-time reminder job on the FastAPI app's startup event.
+  2. **Render Cron Job hitting an endpoint** (option 2): `POST /internal/run-scheduler`,
+     protected by a shared secret header (`INTERNAL_TICK_SECRET`), which a Render Cron Job
+     calls every 10 minutes.
+  - Both drivers call `scheduler.run_catchup_daily_scheduler()`, which consults the
+    `scheduler_runs` marker table (one row per product-timezone date) so exactly one of them
+    does a given day's work. Option 1 alone was the original choice, but the production logs
+    on Sept 17 showed the real failure mode: Render's free tier spun the service down 15
+    minutes after the last user message, so that day's run never happened at all -- and since
+    APScheduler keeps its jobs in memory, the restart did not catch it up either. The endpoint
+    also *wakes* a spun-down service, so it works from cold. The in-process job is kept as the
+    graceful-degradation path if the cron is ever misconfigured, and the startup catch-up
+    covers a service that wakes past the scheduled hour.
 
 ### D. Poster Edit Propagation
 - On any edit to an `opportunities` row, find all `applications` linked to it where `status IN (available, ongoing)`.
@@ -164,7 +175,7 @@ These are the specific places where a Node-to-Python switch changes *how* someth
 ## 7. Decisions — Resolved
 
 - **Backend language/framework:** Python 3.11+, FastAPI, served by Uvicorn (changed from Node.js/Express — see stack change note at top).
-- **Scheduler approach:** in-process APScheduler for the MVP/demo timeline (see Section 3C for the tradeoff against a Render Cron Job).
+- **Scheduler approach:** both drivers, marker-guarded -- in-process APScheduler **and** a Render Cron Job calling the protected `POST /internal/run-scheduler` endpoint (see Section 3C; option 1 on its own lost a whole day whenever Render spun the idle service down).
 - **Messaging provider:** Meta WhatsApp Cloud API, real registered number — unchanged.
 - **Hosting:** Render, free tier — unchanged.
 - **Database:** Supabase (Postgres), accessed via `supabase-py` — unchanged schema, changed client library only.
