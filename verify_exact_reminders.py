@@ -32,6 +32,9 @@ def check(name, condition, detail=""):
 
 
 def row(app_id, status, *, exact=True, reminder_at=None, deadline=None,
+        # A deliberately fake number. Sends are stubbed in this harness so the value is
+        # arbitrary -- and a real one here would put a real person's phone number, and the
+        # opportunity they applied to, into a public repository.
         phone="250700000000", user=None):
     return {
         "id": app_id,
