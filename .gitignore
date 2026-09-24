@@ -226,3 +226,12 @@ plans/
 # Scratch/one-off artifacts from an earlier session — kept on disk locally, not tracked
 IMPLEMENTATION_COMPLETE.md
 test_poster_flow.py
+
+# Demo/scratch helper (clock compression for the recording) -- not part of the product
+demo_cycle.py
+
+# Runtime logs (these were tracked; a crash could log a token or a phone number
+# straight into the repo) and editor config.
+uvicorn.out
+uvicorn.err
+.vscode/

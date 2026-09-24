@@ -1,5 +1,6 @@
 # WaveMatch — Build Checklist (Python / FastAPI)
 
+
 Small, sequential, individually-testable steps. Each step should be verifiable before moving to the next — avoid building multiple layers at once without testing in between, since that makes it hard to isolate where something breaks. **This discipline matters more, not less, in a fresh language** — verify each phase actually works before starting the next one, rather than trusting that a large chunk of freshly-written code is correct.
 
 > **Stack change note:** rewritten for Python/FastAPI (see Architecture-Doc.md). Two fixes from the earlier build are now built into the phases below rather than left implicit: **Phase B** includes the `conversation_states` table (fixes the registration dead-end bug), and **Phase E** explicitly requires every multi-step flow to read/write it. **Phase F0** requires consulting the Interaction Type Reference (Full-Product-Logic.md Section 0) before building any interactive step, rather than inferring button/list/free-text from prose.
@@ -98,49 +99,36 @@ Small, sequential, individually-testable steps. Each step should be verifiable b
 
 > **Implementation (done):** `whatsapp.py:send_ongoing_checkin_notification` (the 3-button check-in; button titles abbreviated to fit the 20-char cap) + `application_flow.py` ongoing handlers `_handle_continue_application` / `_handle_finished_application` / `_handle_remind_later_ongoing` added to `_DISPATCH`; the free-text `"never"` keyword (honoured only from `ongoing`) routes into the existing reusable Section 13 confirmation. Verified live against Supabase (temp fixtures, sends stubbed): 29/29 checks passed, 0 fixtures left. Phase K is next.
 
-## Phase K — Under Review → Outcome  [COMPLETE]
+## Phase K — Under Review → Outcome
 
-- [x] Build the Yes/No/Waiting outcome check message
-- [x] Handle **No**: confirmation first, then delete the row
-- [x] Handle **Waiting**: set `next_reminder_at = +3 days`
-- [x] Handle **Yes** with known `event_start_date`: auto-move to `scheduled`
-- [x] Handle **Yes** with unknown `event_start_date`: prompt user for the date (free text/calendar picker), then move to `scheduled`
+- [ ] Build the Yes/No/Waiting outcome check message
+- [ ] Handle **No**: confirmation first, then delete the row
+- [ ] Handle **Waiting**: set `next_reminder_at = +3 days`
+- [ ] Handle **Yes** with known `event_start_date`: auto-move to `scheduled`
+- [ ] Handle **Yes** with unknown `event_start_date`: prompt user for the date (free text/calendar picker), then move to `scheduled`
 
-## Phase L — Daily Scheduler  [COMPLETE]
+## Phase L — Daily Scheduler
 
-- [x] Register an APScheduler daily job on FastAPI startup (see Architecture-Doc.md Section 3C for the APScheduler-vs-Render-Cron tradeoff already decided)
-- [x] Implement the Deadline Heads-Up pass (2 days before, one-time per application)
-- [x] Implement the Expiry/Auto-Cleanup pass (delete unfinished applications past their deadline)
-- [x] Implement the Reminder Batching pass (max 2/day per user, sorted by nearest deadline, re-sorted fresh each day)
-- [x] Implement the Result-Check pass (fires outcome checks per Phase K logic)
-- [x] Test the scheduler manually (call the job function directly, on-demand, from a temporary route or script) before relying on actual APScheduler timing
-- [x] Drive the daily pass from two places -- the in-process APScheduler job **and** a protected
-      `POST /internal/run-scheduler` endpoint for a Render Cron Job -- with a `scheduler_runs`
-      marker table so exactly one of them runs a given day (the free tier spins an idle service
-      down 15 minutes after the last message, which is how a day's run was being lost silently)
-- [x] Add a startup catch-up (`run_catchup_daily_scheduler()` on boot) so a day missed while the
-      service slept still happens on the first wake-up
-- [x] Serve Section 14.2 exact-time reminders ("in 1 hour") from their own every-few-minutes pass,
-      keyed on the new `applications.reminder_is_exact` flag, because a daily job can never honour a
-      user-chosen time
-- [x] Set `INTERNAL_TICK_SECRET` in Render and point a Render Cron Job at
-      `POST /internal/run-scheduler` (x-tick-secret header) every 10 minutes
+- [ ] Register an APScheduler daily job on FastAPI startup (see Architecture-Doc.md Section 3C for the APScheduler-vs-Render-Cron tradeoff already decided)
+- [ ] Implement the Deadline Heads-Up pass (2 days before, one-time per application)
+- [ ] Implement the Expiry/Auto-Cleanup pass (delete unfinished applications past their deadline)
+- [ ] Implement the Reminder Batching pass (max 2/day per user, sorted by nearest deadline, re-sorted fresh each day)
+- [ ] Implement the Result-Check pass (fires outcome checks per Phase K logic)
+- [ ] Test the scheduler manually (call the job function directly, on-demand, from a temporary route or script) before relying on actual APScheduler timing
 
 ## Phase M — Edit Propagation & Manual Tracking
 
-- [x] Build poster edit → affected-user notification logic (mandatory, explicit deadline-change wording per Full-Product-Logic.md Section 3.1)
-- [x] Build automatic date sync on linked `applications` when a poster edits dates, including resetting `deadline_heads_up_sent` if the deadline changed
-- [x] Build the user-facing "Add manually" flow (Section 9.1) — phase-specific entry point (opened from within Ongoing/Under Review/Scheduled), tracked via `conversation_states` like any other multi-step flow
-- [x] Build the user-facing "Edit an item" flow (Section 9.2)
+- [ ] Build poster edit → affected-user notification logic (mandatory, explicit deadline-change wording per Full-Product-Logic.md Section 3.1)
+- [ ] Build automatic date sync on linked `applications` when a poster edits dates, including resetting `deadline_heads_up_sent` if the deadline changed
+- [ ] Build the user-facing "Add manually" flow (Section 9.1) — phase-specific entry point (opened from within Ongoing/Under Review/Scheduled), tracked via `conversation_states` like any other multi-step flow
+- [ ] Build the user-facing "Edit an item" flow (Section 9.2)
 
 ## Phase N — List Views & Tag Dedup
 
-- [x] Build the Available Applications list view — **paginate if it could exceed 10 items** (9 items + "More →" row); keep item titles under 24 characters
-- [x] Build the My Applications sub-menu (Under Review / Ongoing / Scheduled) as list views — same 10-row/24-char constraints apply
-- [x] Build the fuzzy-match + alias-dictionary matching function using `rapidfuzz` (shared by both user interest parsing and poster tag parsing — build once, call from both)
-- [x] Build the nightly tag-dedup job (can reuse the same APScheduler instance from Phase L, registered as a second job)
-
-> **Note:** bullet 1 was pulled forward and built during the Phase K-start bug fix (the main-menu **Available Apps** button must show the user's matches). Tapping a row re-sends the Phase H New Match Notification. Bullet 2 (My Applications sub-menu) is still a stub.
+- [ ] Build the Available Applications list view — **paginate if it could exceed 10 items** (9 items + "More →" row); keep item titles under 24 characters
+- [ ] Build the My Applications sub-menu (Under Review / Ongoing / Scheduled) as list views — same 10-row/24-char constraints apply
+- [ ] Build the fuzzy-match + alias-dictionary matching function using `rapidfuzz` (shared by both user interest parsing and poster tag parsing — build once, call from both)
+- [ ] Build the nightly tag-dedup job (can reuse the same APScheduler instance from Phase L, registered as a second job)
 
 ## Phase O — Deploy & Real-World Test
 
@@ -151,7 +139,7 @@ Small, sequential, individually-testable steps. Each step should be verifiable b
 
 ## Phase P — Submission Prep (parallel, not sequential — start early)
 
-- [x] Draft and submit the 5 **user-facing** message templates for Meta approval (do this as early as possible, in parallel with Phase C-D, since approval isn't instant). The full register of all 11 templates - name, parameters, body, and the code path each is sent from - is `9-Message-Templates.md`; the 6 admin- and poster-facing ones are already drafted and submitted. **All 11 are now approved by Meta** (confirm the approved bodies of Templates 1-5 are captured in the register before wiring them).
+- [ ] Draft and submit the 5 message templates for Meta approval (do this as early as possible, in parallel with Phase C-D, since approval isn't instant)
 - [ ] Collect real usage screenshots/data once Phase O testing has run for a few days
 - [ ] Record the demo video
 - [ ] Write the final competition submission using the Problem Statement, Product Plan, and real usage data

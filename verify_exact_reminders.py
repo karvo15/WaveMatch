@@ -59,7 +59,16 @@ def test_flag_decision():
         ("in 1 hour", True), ("in 5 hours", True), ("in 3 days", True),
         ("20/09/2026", True), ("Sept 20", True),
         ("default", False), ("", False), ("tomorrow", False),
-        ("5 days", False), ("in 2 weeks", False),
+        # "5 days" and "in 2 weeks" were asserted False here, which is exactly what made
+        # the parser gap look intentional rather than wrong: a reply typed without the
+        # leading "in", and every week-based reply, were silently replaced by the +2 day
+        # default -- and because the confirmation is built from the same failed parse,
+        # the bot still said "in 2 days", so the user never saw their time discarded.
+        # Both are ordinary replies, so both are True now (see verify_reminder_parser.py
+        # for the full accepted/rejected matrix).
+        ("5 days", True), ("in 2 weeks", True), ("1 hour", True),
+        ("an hour", True), ("1h", True), ("in 1 week", True),
+        ("in 1 hour please", False), ("after 1 hour", False),
     ]
     for text, expected in cases:
         got = application_flow._parse_strict_time(text) is not None

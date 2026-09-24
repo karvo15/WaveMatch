@@ -165,13 +165,51 @@ def _extract_message_text(payload: Dict[str, Any]) -> str:
         return ""
 
 
+def _message_type(payload: Dict[str, Any]) -> Optional[str]:
+    """
+    The inbound message's `type` ("text", "interactive", "button", "audio", ...).
+
+    Only used for diagnostics: when a reminder time cannot be read, the difference
+    between "they typed something we did not understand" and "we never received any
+    text at all" (a button tap, a voice note, a photo) is the whole diagnosis, and
+    the payload shape is the only place that distinction lives.
+    """
+    try:
+        message_obj = payload["entry"][0]["changes"][0]["value"]["messages"][0]
+        return message_obj.get("type")
+    except (KeyError, IndexError, TypeError):
+        return None
+
+
 # ============================================================
 # REMINDER-TIME PARSING (Section 14.2 free-text formats)
 # ============================================================
 
+# Section 14.2's canonical forms are "in 3 days" / "in 5 hours", but the replies real
+# people send are shorter: "3 days", "1h", "an hour", "in 1 week". Every one of those
+# used to miss this pattern and fall through to the +2 day default -- and because the
+# confirmation phrase is built from the same failed parse, the bot answered "in 2 days"
+# with nothing to show the user their own time had been discarded. So: the leading "in"
+# is optional, a/an/one count as 1, and the unit list covers the abbreviations a phone
+# keyboard produces. Nothing here loosens the +2 day fallback itself (Section 5.2) --
+# it only widens what counts as "understood".
 _RELATIVE_RE = re.compile(
-    r"^in\s+(\d+)\s*(day|days|hour|hours|hr|hrs|min|mins|minute|minutes)$"
+    r"^(?:in\s+)?(\d+|a|an|one)\s*"
+    r"(days|day|weeks|week|wks|wk|hours|hour|hrs|hr|minutes|minute|mins|min|d|w|h|m)$"
 )
+_WORD_AMOUNTS = {"a": 1, "an": 1, "one": 1}
+
+
+def _relative_delta(amount: int, unit: str) -> Tuple[timedelta, str]:
+    """Map a parsed (amount, unit) pair to (offset, singular noun) for the confirmation."""
+    if unit.startswith("w"):
+        return timedelta(weeks=amount), "week"
+    if unit.startswith("d"):
+        return timedelta(days=amount), "day"
+    if unit.startswith("h"):
+        return timedelta(hours=amount), "hour"
+    return timedelta(minutes=amount), "minute"
+
 
 _FULL_DATE_FORMATS = (
     "%Y-%m-%d",
@@ -196,6 +234,11 @@ def _normalise_time_text(raw: str) -> str:
     text = (raw or "").strip().lower().replace(".", "")
     text = re.sub(r"\bsept\b", "sep", text)
     return " ".join(text.split())
+
+
+def _amount_from(token: str) -> int:
+    """Turn a matched amount token into a number ("3", "a", "an", "one")."""
+    return _WORD_AMOUNTS.get(token, 0) if token.isalpha() else int(token)
 
 
 def _parse_absolute_date(text: str, now: datetime) -> Optional[date]:
@@ -233,15 +276,11 @@ def _parse_strict_time(raw_text: str, now: Optional[datetime] = None) -> Optiona
 
     match = _RELATIVE_RE.match(text)
     if match:
-        amount = int(match.group(1))
-        unit = match.group(2)
+        amount = _amount_from(match.group(1))
         if amount <= 0:
             return None
-        if unit.startswith("day"):
-            return now + timedelta(days=amount)
-        if unit.startswith("hr") or unit.startswith("hour"):
-            return now + timedelta(hours=amount)
-        return now + timedelta(minutes=amount)
+        delta, _ = _relative_delta(amount, match.group(2))
+        return now + delta
 
     absolute = _parse_absolute_date(text, now)
     if absolute:
@@ -266,12 +305,9 @@ def _parse_reminder_time(raw_text: str, now: Optional[datetime] = None) -> Tuple
 
     match = _RELATIVE_RE.match(_normalise_time_text(raw_text))
     if match:
-        amount, unit = int(match.group(1)), match.group(2)
-        if unit.startswith("day"):
-            return when, f"in {amount} day(s)"
-        if unit.startswith("hr") or unit.startswith("hour"):
-            return when, f"in {amount} hour(s)"
-        return when, f"in {amount} minute(s)"
+        amount = _amount_from(match.group(1))
+        _, noun = _relative_delta(amount, match.group(2))
+        return when, f"in {amount} {noun}(s)"
     return when, f"on {when.strftime('%b %d, %Y')}"
 
 
@@ -629,6 +665,23 @@ async def handle_remind_later_time_step(
     # reply, and anything unparseable all fall back to +2 days, which is a normal
     # bot-scheduled reminder and stays on the daily rhythm (Section 5.2).
     exact = _parse_strict_time(text) is not None
+    if not exact and _normalise_time_text(text) != "default":
+        # Say so loudly. A silent fallback is indistinguishable in the logs from a user
+        # who genuinely asked for the default, and a reply that never arrived as text at
+        # all (a button tap, a voice note, an image) looks exactly like a typo. These two
+        # lines separate "we could not read this" from "we never received any text".
+        if not text:
+            logger.warning(
+                f"REMIND_TIME_EMPTY: phone_number={phone_number} application_id={application_id} "
+                f"message_type={_message_type(payload)!r} -- no text in the reply, using the "
+                f"+{REMINDER_DEFAULT_DAYS} day default"
+            )
+        else:
+            logger.warning(
+                f"REMIND_TIME_UNPARSEABLE: phone_number={phone_number} application_id={application_id} "
+                f"text={text!r} message_type={_message_type(payload)!r} -- using the "
+                f"+{REMINDER_DEFAULT_DAYS} day default"
+            )
     await _update_application(
         application_id,
         {"next_reminder_at": when.isoformat(), "reminder_is_exact": exact},

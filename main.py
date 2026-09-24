@@ -1,10 +1,12 @@
 import asyncio
 import hmac
 import logging
+import re
 from contextlib import asynccontextmanager
+from urllib.parse import quote
 
 from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, RedirectResponse
 import os
 from dotenv import load_dotenv
 
@@ -98,6 +100,42 @@ async def webhook_verification(request: Request):
 @app.post("/webhook")
 async def webhook_receiver(request: Request):
     return await receive_webhook(request)
+
+
+# ============================================================
+# CLICK-TO-CHAT SHORT LINK
+# ============================================================
+# One stable, printable URL that points at the bot -- https://<service>/wa -- instead of
+# a raw wa.me link. Two reasons the indirection earns its keep: the display number can
+# change without reprinting every poster, and WhatsApp offers no attribution whatsoever
+# for wa.me traffic, so the log line below is the only click count that will ever exist.
+#
+# BOT_DISPLAY_NUMBER is the number students see (+250 736 544 482); it is NOT
+# WHATSAPP_PHONE_NUMBER_ID, which is an internal Meta id that no client can dial.
+BOT_DISPLAY_NUMBER = re.sub(r"\D", "", os.getenv("BOT_DISPLAY_NUMBER", ""))
+
+
+@app.get("/wa")
+async def chat_link(text: str = "Hi WaveMatch"):
+    """
+    Send the visitor to WhatsApp with the message box pre-filled.
+
+    The visitor still has to press send -- WhatsApp never sends a pre-filled message on
+    its own -- and that send is the point: because the *user* initiates, the 24-hour
+    customer-service window opens and the bot can reply with ordinary free-form messages.
+    `text` is overridable so a future campaign can prefill its own opener.
+    """
+    if not BOT_DISPLAY_NUMBER:
+        logger.warning("CHAT_LINK_UNCONFIGURED: BOT_DISPLAY_NUMBER is not set")
+        return JSONResponse(
+            {"status": "unconfigured", "detail": "BOT_DISPLAY_NUMBER is not set"},
+            status_code=503,
+        )
+    logger.info(f"CHAT_LINK_OPENED: text={text!r}")
+    return RedirectResponse(
+        f"https://wa.me/{BOT_DISPLAY_NUMBER}?text={quote(text)}",
+        status_code=302,
+    )
 
 
 # ============================================================
